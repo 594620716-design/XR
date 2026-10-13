@@ -7,6 +7,26 @@ nonisolated enum PenMode: String, CaseIterable, Codable, Sendable {
     case line = "Line"
 }
 
+nonisolated enum PenAction: String, CaseIterable, Sendable {
+    case draw = "Draw"
+    case bend = "Bend"
+    case cut = "Cut"
+    case erase = "Erase"
+
+    var statusText: String {
+        switch self {
+        case .draw:
+            "Click points · Drag curves · Click the first point to close · Double-click or Return to finish open · Double-click an existing point to smooth · ⌘Return loads selection"
+        case .bend:
+            "Drag a path segment to bend it · ⌘Z undo · Tab changes path tool"
+        case .cut:
+            "Click a path segment to cut it · Closed paths open; open paths split into two layers · ⌘Z undo"
+        case .erase:
+            "Drag the circular eraser across a path · [ ] size · Right-drag size · ⌘Z undo"
+        }
+    }
+}
+
 nonisolated struct VectorPathNode: Codable, Equatable, Sendable {
     var anchor: CGPoint
     var inHandle: CGPoint
@@ -139,6 +159,17 @@ nonisolated struct PenDraft {
     var brushStroke: LayerVectorPathBrushStroke? = nil
 }
 
+nonisolated struct PenBendGesture: Sendable {
+    let segmentIndex: Int
+    let t: CGFloat
+    var lastPoint: CGPoint
+}
+
+nonisolated struct PenEraseGesture: Sendable {
+    var lastPoint: CGPoint
+    var changedLayerIDs: Set<UUID> = []
+}
+
 extension ImageLayer {
     var liveVectorPath: LayerVectorPath? {
         guard let vectorPath,
@@ -163,9 +194,11 @@ extension EditorSession {
         canEditLayers && penDocumentPath(closeOpenPath: false, requiresArea: false) != nil
     }
 
-    func cyclePenMode() {
+    func cyclePenAction() {
         cancelPen()
-        penMode = penMode == .shape ? .line : .shape
+        let actions = PenAction.allCases
+        let index = actions.firstIndex(of: penAction) ?? 0
+        penAction = actions[(index + 1) % actions.count]
     }
 
     /// Converts the path being drawn, or the active vector path, to a selection without filling pixels.
@@ -229,10 +262,11 @@ extension EditorSession {
     @discardableResult
     func beginPenAnchor(at point: CGPoint, closeDistance: CGFloat, constrain: Bool) -> Bool {
         guard tool == .pen, canEditLayers else { return false }
-        if let draft = penDraft,
-           draft.mode == .shape,
+        if var draft = penDraft,
            draft.nodes.count >= 3,
            hypot(point.x - draft.nodes[0].anchor.x, point.y - draft.nodes[0].anchor.y) <= closeDistance {
+            draft.mode = .shape
+            penDraft = draft
             return finishPen()
         }
 
@@ -244,7 +278,7 @@ extension EditorSession {
             selectedPenNodeIndex = nil
             selectedPenHandle = nil
             penDraft = PenDraft(
-                mode: penMode,
+                mode: .line,
                 color: foregroundColor,
                 lineWidth: 4,
                 nodes: [],
@@ -322,26 +356,10 @@ extension EditorSession {
     func beginPenLineNodeGesture(at point: CGPoint, tolerance: CGFloat) -> Int? {
         guard tool == .pen, canEditLayers, penDraft == nil else { return nil }
 
-        guard let document else { return nil }
-        let visible = document.effectiveVisibleIDs
-        for layerIndex in document.layers.indices.reversed() {
-            let layer = document.layers[layerIndex]
-            guard (visible.contains(layer.id) || layer.id == activeLayerID),
-                  let vectorPath = layer.liveVectorPath
-            else { continue }
-            let localNodes = vectorPath.style.nodes(in: layer.transform.size)
-            let documentNodes = localNodes.map { node in
-                VectorPathNode(
-                    anchor: penDocumentPoint(node.anchor, transform: layer.transform),
-                    inHandle: penDocumentPoint(node.inHandle, transform: layer.transform),
-                    outHandle: penDocumentPoint(node.outHandle, transform: layer.transform)
-                )
-            }
-
+        for (layer, vectorPath, documentNodes) in editablePenPaths() {
             if let hit = nearestPenHandle(to: point, in: documentNodes, tolerance: tolerance) {
                 selectLayer(layer.id)
                 guard activeLayerID == layer.id else { return nil }
-                penMode = vectorPath.style.mode
                 selectedPenNodeIndex = hit.nodeIndex
                 selectedPenHandle = hit.handle
                 penLineGestureHandle = hit.handle
@@ -353,7 +371,6 @@ extension EditorSession {
             if let nodeIndex = nearestPenNode(to: point, in: documentNodes, tolerance: tolerance) {
                 selectLayer(layer.id)
                 guard activeLayerID == layer.id else { return nil }
-                penMode = vectorPath.style.mode
                 selectedPenNodeIndex = nodeIndex
                 selectedPenHandle = nil
                 penLineGestureHandle = nil
@@ -366,7 +383,6 @@ extension EditorSession {
                                            closed: vectorPath.style.closed, tolerance: tolerance) {
                 selectLayer(layer.id)
                 guard activeLayerID == layer.id else { return nil }
-                penMode = vectorPath.style.mode
                 beginEdit("Add Path Point")
                 penLineGestureActive = true
                 penLineGestureHandle = nil
@@ -380,6 +396,212 @@ extension EditorSession {
             }
         }
         return nil
+    }
+
+    /// Converts a corner anchor to a smooth point. Its handles follow the chord between the neighboring anchors,
+    /// with independent lengths on each side; later handle drags keep them collinear unless Option breaks them.
+    @discardableResult
+    func smoothPenNode(at point: CGPoint, tolerance: CGFloat) -> Bool {
+        guard tool == .pen, canEditLayers, penDraft == nil else { return false }
+        for (layer, vectorPath, nodes) in editablePenPaths() {
+            let transform = layer.transform.unitToDocument
+            guard let index = nearestPenNode(to: point, in: nodes, tolerance: tolerance) else { continue }
+            guard vectorPath.style.closed || (index > 0 && index < nodes.count - 1) else { return false }
+            let previous = nodes[(index - 1 + nodes.count) % nodes.count].anchor
+            let anchor = nodes[index].anchor
+            let next = nodes[(index + 1) % nodes.count].anchor
+            var dx = next.x - previous.x
+            var dy = next.y - previous.y
+            var length = hypot(dx, dy)
+            if length <= 0 {
+                dx = next.x - anchor.x
+                dy = next.y - anchor.y
+                length = hypot(dx, dy)
+            }
+            guard length > 0 else { return false }
+            dx /= length
+            dy /= length
+            let incomingLength = hypot(anchor.x - previous.x, anchor.y - previous.y) / 3
+            let outgoingLength = hypot(next.x - anchor.x, next.y - anchor.y) / 3
+            let incoming = CGPoint(x: anchor.x - dx * incomingLength,
+                                   y: anchor.y - dy * incomingLength)
+            let outgoing = CGPoint(x: anchor.x + dx * outgoingLength,
+                                   y: anchor.y + dy * outgoingLength)
+            let inverse = transform.inverted()
+            let unitIncoming = incoming.applying(inverse)
+            let unitOutgoing = outgoing.applying(inverse)
+            guard unitIncoming.x.isFinite, unitIncoming.y.isFinite,
+                  unitOutgoing.x.isFinite, unitOutgoing.y.isFinite else { return false }
+
+            selectLayer(layer.id)
+            guard activeLayerID == layer.id else { return false }
+            beginEdit("Smooth Path Point")
+            var proposed = vectorPath.style
+            proposed.nodes[index].inHandle = unitIncoming
+            proposed.nodes[index].outHandle = unitOutgoing
+            selectedPenNodeIndex = index
+            selectedPenHandle = nil
+            replaceActivePenPath(with: proposed, preview: false)
+            endEdit()
+            return true
+        }
+        return false
+    }
+
+    @discardableResult
+    func beginPenBendGesture(at point: CGPoint, tolerance: CGFloat) -> Bool {
+        guard tool == .pen, penAction == .bend, canEditLayers, penDraft == nil else { return false }
+        for (layer, vectorPath, nodes) in editablePenPaths() {
+            guard let hit = nearestPenSegment(to: point, in: nodes,
+                                              closed: vectorPath.style.closed, tolerance: tolerance) else { continue }
+            selectLayer(layer.id)
+            guard activeLayerID == layer.id else { return false }
+            beginEdit("Bend Path")
+            penLineGestureActive = true
+            penLineGestureHandle = nil
+            penBendGesture = PenBendGesture(segmentIndex: hit.segmentIndex,
+                                            t: min(0.95, max(0.05, hit.t)), lastPoint: point)
+            selectedPenNodeIndex = nil
+            selectedPenHandle = nil
+            return true
+        }
+        return false
+    }
+
+    func dragPenBend(to point: CGPoint) {
+        guard var gesture = penBendGesture,
+              let layer = activeLayer,
+              let vectorPath = layer.liveVectorPath else { return }
+        let segmentCount = vectorPath.style.closed ? vectorPath.style.nodes.count : vectorPath.style.nodes.count - 1
+        guard gesture.segmentIndex >= 0, gesture.segmentIndex < segmentCount else { return }
+        let nextIndex = (gesture.segmentIndex + 1) % vectorPath.style.nodes.count
+        let factor = max(0.01, 3 * gesture.t * (1 - gesture.t))
+        let shift = CGSize(width: (point.x - gesture.lastPoint.x) / factor,
+                           height: (point.y - gesture.lastPoint.y) / factor)
+        guard shift.width.isFinite, shift.height.isFinite else { return }
+        let transform = layer.transform.unitToDocument
+        let inverse = transform.inverted()
+        var proposed = vectorPath.style
+        let outgoing = proposed.nodes[gesture.segmentIndex].outHandle.applying(transform)
+        let incoming = proposed.nodes[nextIndex].inHandle.applying(transform)
+        proposed.nodes[gesture.segmentIndex].outHandle = CGPoint(
+            x: outgoing.x + shift.width, y: outgoing.y + shift.height
+        ).applying(inverse)
+        proposed.nodes[nextIndex].inHandle = CGPoint(
+            x: incoming.x + shift.width, y: incoming.y + shift.height
+        ).applying(inverse)
+        replaceActivePenPath(with: proposed, preview: true)
+        gesture.lastPoint = point
+        penBendGesture = gesture
+    }
+
+    @discardableResult
+    func cutPenPath(at point: CGPoint, tolerance: CGFloat) -> Bool {
+        guard tool == .pen, penAction == .cut, canEditLayers, penDraft == nil, let document else { return false }
+        for (layer, vectorPath, nodes) in editablePenPaths() {
+            guard let hit = nearestPenSegment(to: point, in: nodes,
+                                              closed: vectorPath.style.closed, tolerance: tolerance) else { continue }
+            selectLayer(layer.id)
+            guard activeLayerID == layer.id else { return false }
+            var split = splitPenSegment(nodes: vectorPath.style.nodes, segmentIndex: hit.segmentIndex,
+                                        t: hit.t, closed: vectorPath.style.closed)
+            let cutIndex = hit.segmentIndex == vectorPath.style.nodes.count - 1 ? split.count - 1 : hit.segmentIndex + 1
+            guard split.indices.contains(cutIndex) else { return false }
+
+            if vectorPath.style.closed {
+                let cut = split[cutIndex]
+                split = Array(split[cutIndex...]) + Array(split[..<cutIndex]) + [cut]
+                split[0].inHandle = split[0].anchor
+                split[split.count - 1].outHandle = split[split.count - 1].anchor
+                var proposed = vectorPath.style
+                proposed.mode = .line
+                proposed.closed = false
+                proposed.nodes = split
+                beginEdit("Cut Path")
+                selectedPenNodeIndex = 0
+                selectedPenHandle = nil
+                replaceActivePenPath(with: proposed, preview: false)
+                endEdit()
+                return true
+            }
+
+            var first = vectorPath.style
+            first.nodes = Array(split[...cutIndex])
+            var second = vectorPath.style
+            second.nodes = Array(split[cutIndex...])
+            guard first.isValid, second.isValid,
+                  let firstImage = vectorPathImage(style: first, size: layer.transform.size),
+                  let secondImage = vectorPathImage(style: second, size: layer.transform.size),
+                  let firstThumbnail = try? PixelInvert.thumbnail(of: firstImage),
+                  let secondThumbnail = try? PixelInvert.thumbnail(of: secondImage),
+                  let sourceIndex = document.layers.firstIndex(where: { $0.id == layer.id }) else { return false }
+            let used = document.layers.indices.filter { $0 != sourceIndex }.reduce(0) {
+                $0 + (document.layers[$1].asset.map { $0.image.width * $0.image.height } ?? 0)
+            }
+            guard used + firstImage.width * firstImage.height + secondImage.width * secondImage.height <=
+                    DocumentLimits.documentPixelBudget else {
+                brushError = ProjectError.tooLarge.localizedDescription
+                return false
+            }
+            let secondName = nextVectorPathName()
+            let firstAsset = ImportedImage(image: firstImage, thumbnail: firstThumbnail, name: layer.name)
+            let secondAsset = ImportedImage(image: secondImage, thumbnail: secondThumbnail, name: secondName)
+            let secondLayer = ImageLayer(
+                id: UUID(), asset: secondAsset, name: secondName, isVisible: layer.isVisible,
+                transform: layer.transform, parentID: layer.parentID, opacity: layer.opacity,
+                blendMode: layer.blendMode,
+                vectorPath: LayerVectorPath(style: second, image: secondImage), effects: layer.effects
+            )
+            beginEdit("Cut Path")
+            self.document?.layers[sourceIndex].asset = firstAsset
+            self.document?.layers[sourceIndex].vectorPath = LayerVectorPath(style: first, image: firstImage)
+            self.document?.layers.insert(secondLayer, at: sourceIndex + 1)
+            selectedPenNodeIndex = first.nodes.count - 1
+            selectedPenHandle = nil
+            endEdit()
+            return true
+        }
+        return false
+    }
+
+    @discardableResult
+    func beginPenErase(at point: CGPoint, diameter: CGFloat) -> Bool {
+        guard tool == .pen, penAction == .erase, canEditLayers, penDraft == nil,
+              diameter.isFinite, diameter > 0 else { return false }
+        finishOpacityEdit()
+        beginEdit("Erase Path")
+        penEraseGesture = PenEraseGesture(lastPoint: point)
+        erasePenPath(at: point, radius: diameter / 2)
+        return true
+    }
+
+    func dragPenErase(to point: CGPoint, diameter: CGFloat) {
+        guard var gesture = penEraseGesture, diameter.isFinite, diameter > 0 else { return }
+        let dx = point.x - gesture.lastPoint.x
+        let dy = point.y - gesture.lastPoint.y
+        let distance = hypot(dx, dy)
+        let spacing = max(1, diameter / 4)
+        let steps = min(256, max(1, Int(ceil(distance / spacing))))
+        for step in 1...steps {
+            let amount = CGFloat(step) / CGFloat(steps)
+            erasePenPath(at: CGPoint(x: gesture.lastPoint.x + dx * amount,
+                                     y: gesture.lastPoint.y + dy * amount),
+                         radius: diameter / 2)
+        }
+        gesture.lastPoint = point
+        if let current = penEraseGesture { gesture.changedLayerIDs.formUnion(current.changedLayerIDs) }
+        penEraseGesture = gesture
+    }
+
+    func endPenErase() {
+        guard let gesture = penEraseGesture else { return }
+        penEraseGesture = nil
+        if let document {
+            for id in gesture.changedLayerIDs {
+                if let index = document.layers.firstIndex(where: { $0.id == id }) { redrawVectorPath(at: index) }
+            }
+        }
+        endEdit()
     }
 
     func dragPenLineNode(to documentPoint: CGPoint, constrain: Bool = false, breakHandles: Bool = false) {
@@ -444,6 +666,7 @@ extension EditorSession {
         guard penLineGestureActive else { return }
         penLineGestureActive = false
         penLineGestureHandle = nil
+        penBendGesture = nil
         if let id = activeLayerID,
            let index = document?.layers.firstIndex(where: { $0.id == id }) {
             redrawVectorPath(at: index)
@@ -637,6 +860,119 @@ extension EditorSession {
         nextPenResultName("Path")
     }
 
+    private func erasePenPath(at center: CGPoint, radius: CGFloat) {
+        guard var gesture = penEraseGesture, radius.isFinite, radius > 0 else { return }
+        for (layer, vectorPath, _) in editablePenPaths() {
+            guard let fragments = penPathFragmentsOutsideCircle(
+                nodes: vectorPath.style.nodes,
+                closed: vectorPath.style.closed,
+                transform: layer.transform.unitToDocument,
+                center: center,
+                radius: radius
+            ) else { continue }
+            gesture.changedLayerIDs.formUnion(replacePenLayer(layer, with: fragments))
+        }
+        penEraseGesture = gesture
+    }
+
+    private func replacePenLayer(_ source: ImageLayer, with fragments: [[VectorPathNode]]) -> Set<UUID> {
+        guard let document, let sourceIndex = document.layers.firstIndex(where: { $0.id == source.id }),
+              let sourceStyle = source.liveVectorPath?.style else { return [] }
+        selectedPenNodeIndex = nil
+        selectedPenHandle = nil
+
+        guard !fragments.isEmpty else {
+            self.document?.layers.remove(at: sourceIndex)
+            if activeLayerID == source.id {
+                let layers = self.document?.layers ?? []
+                activeLayerID = layers.isEmpty ? nil : layers[min(sourceIndex, layers.count - 1)].id
+            }
+            return []
+        }
+
+        var names = Set(document.layers.map(\.name))
+        var number = 1
+        func nextName() -> String {
+            while names.contains("Path \(number)") { number += 1 }
+            let name = "Path \(number)"
+            names.insert(name)
+            number += 1
+            return name
+        }
+
+        var replacements: [ImageLayer] = []
+        var fullPixelCount = 0
+        for (index, nodes) in fragments.enumerated() {
+            var style = sourceStyle
+            style.mode = .line
+            style.closed = false
+            style.nodes = nodes
+            // A cut path no longer encloses an area. Keeping its old fill would silently join the new endpoints
+            // and paint straight across the erased gap, so only an explicit path stroke survives the eraser.
+            style.fill = nil
+            let id = index == 0 ? source.id : UUID()
+            let name = index == 0 ? source.name : nextName()
+            guard let built = erasedPenLayer(style: style, source: source, id: id, name: name) else { return [] }
+            replacements.append(built.layer)
+            fullPixelCount += built.fullPixelCount
+        }
+
+        let used = document.layers.indices.filter { $0 != sourceIndex }.reduce(0) {
+            $0 + (document.layers[$1].asset.map { $0.image.width * $0.image.height } ?? 0)
+        }
+        guard used + fullPixelCount <= DocumentLimits.documentPixelBudget else {
+            brushError = ProjectError.tooLarge.localizedDescription
+            return []
+        }
+        self.document?.layers.replaceSubrange(sourceIndex...sourceIndex, with: replacements)
+        if activeLayerID == source.id { activeLayerID = replacements[0].id }
+        return Set(replacements.map(\.id))
+    }
+
+    private func erasedPenLayer(
+        style: LayerVectorPathStyle,
+        source: ImageLayer,
+        id: UUID,
+        name: String
+    ) -> (layer: ImageLayer, fullPixelCount: Int)? {
+        guard let oldAsset = source.asset else { return nil }
+        let oldTransform = source.transform
+        let localNodes = style.nodes(in: oldTransform.size)
+        let draft = PenDraft(
+            mode: .line,
+            color: PaletteColor(red: CGFloat(style.red), green: CGFloat(style.green), blue: CGFloat(style.blue)),
+            lineWidth: style.lineWidth,
+            nodes: localNodes,
+            hoverPoint: nil,
+            brushStroke: style.brushStroke
+        )
+        guard let committed = committedPenStyle(draft, closed: false) else { return nil }
+        let fullSize = committed.box.size
+        let painted = committed.style.brushStroke != nil
+        let fullPixelCount = painted ? Int(ceil(fullSize.width)) * Int(ceil(fullSize.height)) : 1
+        let scale = painted ? min(1, 1_024 / max(max(fullSize.width, fullSize.height), 1)) : 1
+        let imageSize = CGSize(width: max(1, fullSize.width * scale), height: max(1, fullSize.height * scale))
+        guard let image = vectorPathImage(style: committed.style, size: imageSize, appearanceScale: scale) else {
+            brushError = BrushStrokeError.pathTooComplex.localizedDescription
+            return nil
+        }
+
+        let centerUnit = CGPoint(x: committed.box.midX / max(oldTransform.size.width, 1),
+                                 y: committed.box.midY / max(oldTransform.size.height, 1))
+        let center = centerUnit.applying(oldTransform.unitToDocument)
+        var transform = oldTransform
+        transform.size = fullSize
+        transform.origin = CGPoint(x: center.x - fullSize.width / 2, y: center.y - fullSize.height / 2)
+        let asset = ImportedImage(image: image, thumbnail: oldAsset.thumbnail, name: name)
+        let layer = ImageLayer(
+            id: id, asset: asset, name: name, isVisible: source.isVisible, transform: transform,
+            parentID: source.parentID, opacity: source.opacity, blendMode: source.blendMode,
+            mask: source.mask, maskSourceID: source.maskSourceID,
+            vectorPath: LayerVectorPath(style: committed.style, image: image), effects: source.effects
+        )
+        return (layer, fullPixelCount)
+    }
+
     private func vectorPathImage(
         style: LayerVectorPathStyle,
         size: CGSize,
@@ -703,6 +1039,22 @@ extension EditorSession {
         var number = 1
         while names.contains("\(base) \(number)") { number += 1 }
         return "\(base) \(number)"
+    }
+
+    private func editablePenPaths() -> [(ImageLayer, LayerVectorPath, [VectorPathNode])] {
+        guard let document else { return [] }
+        let visible = document.effectiveVisibleIDs
+        return document.layers.reversed().compactMap { layer in
+            guard (visible.contains(layer.id) || layer.id == activeLayerID),
+                  let vectorPath = layer.liveVectorPath else { return nil }
+            let transform = layer.transform.unitToDocument
+            let nodes = vectorPath.style.nodes.map { node in
+                VectorPathNode(anchor: node.anchor.applying(transform),
+                               inHandle: node.inHandle.applying(transform),
+                               outHandle: node.outHandle.applying(transform))
+            }
+            return (layer, vectorPath, nodes)
+        }
     }
 }
 
@@ -819,6 +1171,154 @@ private nonisolated func splitPenSegment(
     if nextIndex == 0 { result.append(node) }
     else { result.insert(node, at: nextIndex) }
     return result
+}
+
+private nonisolated struct PenCubic {
+    var start: CGPoint
+    var control1: CGPoint
+    var control2: CGPoint
+    var end: CGPoint
+
+    func applying(_ transform: CGAffineTransform) -> PenCubic {
+        PenCubic(start: start.applying(transform), control1: control1.applying(transform),
+                 control2: control2.applying(transform), end: end.applying(transform))
+    }
+}
+
+/// Removes the portions of a path covered by a circular vector eraser. Nil means the circle missed the path;
+/// an empty array means it erased the path completely. Retained cubic pieces stay cubic rather than becoming
+/// a dense polyline, so repeated erasing does not steadily degrade the original curve.
+private nonisolated func penPathFragmentsOutsideCircle(
+    nodes: [VectorPathNode],
+    closed: Bool,
+    transform: CGAffineTransform,
+    center: CGPoint,
+    radius: CGFloat
+) -> [[VectorPathNode]]? {
+    guard nodes.count >= 2, radius.isFinite, radius > 0 else { return nil }
+    let radiusSquared = radius * radius
+    var pieces: [(curve: PenCubic, outside: Bool)] = []
+    var erased = false
+    let segmentCount = closed ? nodes.count : nodes.count - 1
+
+    for index in 0..<segmentCount {
+        let first = nodes[index]
+        let second = nodes[(index + 1) % nodes.count]
+        let curve = PenCubic(start: first.anchor, control1: first.outHandle,
+                             control2: second.inHandle, end: second.anchor)
+        let documentCurve = curve.applying(transform)
+        let xs = [documentCurve.start.x, documentCurve.control1.x, documentCurve.control2.x, documentCurve.end.x]
+        let ys = [documentCurve.start.y, documentCurve.control1.y, documentCurve.control2.y, documentCurve.end.y]
+        if center.x + radius < xs.min()! || center.x - radius > xs.max()! ||
+            center.y + radius < ys.min()! || center.y - radius > ys.max()! {
+            pieces.append((curve, true))
+            continue
+        }
+
+        let samples = penCubicSamples(documentCurve, maximumStep: max(0.5, radius / 2))
+        var crossings: [CGFloat] = []
+        for pair in zip(samples, samples.dropFirst()) {
+            let firstInside = squaredDistance(pair.0.point, center) <= radiusSquared
+            let secondInside = squaredDistance(pair.1.point, center) <= radiusSquared
+            guard firstInside != secondInside else { continue }
+            var low = pair.0.t
+            var high = pair.1.t
+            let lowInside = firstInside
+            for _ in 0..<14 {
+                let middle = (low + high) / 2
+                let point = cubicPoint(documentCurve.start, documentCurve.control1,
+                                       documentCurve.control2, documentCurve.end, t: middle)
+                if (squaredDistance(point, center) <= radiusSquared) == lowInside { low = middle }
+                else { high = middle }
+            }
+            crossings.append((low + high) / 2)
+        }
+
+        let boundaries = [CGFloat.zero] + crossings + [CGFloat(1)]
+        for boundaryIndex in 0..<(boundaries.count - 1) {
+            let start = boundaries[boundaryIndex]
+            let end = boundaries[boundaryIndex + 1]
+            guard end - start > 0.000_001 else { continue }
+            let middle = (start + end) / 2
+            let point = cubicPoint(documentCurve.start, documentCurve.control1,
+                                   documentCurve.control2, documentCurve.end, t: middle)
+            let outside = squaredDistance(point, center) > radiusSquared
+            erased = erased || !outside
+            pieces.append((penCubicSubcurve(curve, from: start, to: end), outside))
+        }
+    }
+    guard erased else { return nil }
+
+    // A closed path has no natural beginning. Start just after an erased piece so a retained run that crosses
+    // the old first anchor is emitted as one path instead of two artificial fragments.
+    if closed, let gap = pieces.firstIndex(where: { !$0.outside }) {
+        let next = gap + 1
+        pieces = (next < pieces.count ? Array(pieces[next...]) : []) + Array(pieces[...gap])
+    }
+
+    var fragments: [[VectorPathNode]] = []
+    var current: [VectorPathNode] = []
+    func finishFragment() {
+        if current.count >= 2,
+           current.dropFirst().contains(where: { squaredDistance($0.anchor, current[0].anchor) > 0.000_000_000_001 }) {
+            fragments.append(current)
+        }
+        current.removeAll(keepingCapacity: true)
+    }
+    for piece in pieces {
+        guard piece.outside else { finishFragment(); continue }
+        if current.isEmpty {
+            current.append(VectorPathNode(anchor: piece.curve.start))
+        } else if squaredDistance(current[current.count - 1].anchor, piece.curve.start) > 0.000_000_000_001 {
+            finishFragment()
+            current.append(VectorPathNode(anchor: piece.curve.start))
+        }
+        current[current.count - 1].outHandle = piece.curve.control1
+        current.append(VectorPathNode(anchor: piece.curve.end, inHandle: piece.curve.control2))
+    }
+    finishFragment()
+    return fragments
+}
+
+private nonisolated func penCubicSamples(
+    _ curve: PenCubic,
+    maximumStep: CGFloat
+) -> [(t: CGFloat, point: CGPoint)] {
+    var samples: [(CGFloat, CGPoint)] = [(0, curve.start)]
+    func append(_ part: PenCubic, from start: CGFloat, to end: CGFloat, depth: Int) {
+        let length = hypot(part.control1.x - part.start.x, part.control1.y - part.start.y)
+            + hypot(part.control2.x - part.control1.x, part.control2.y - part.control1.y)
+            + hypot(part.end.x - part.control2.x, part.end.y - part.control2.y)
+        if length <= maximumStep || depth >= 12 {
+            samples.append((end, part.end))
+            return
+        }
+        let split = splitPenCubic(part, at: 0.5)
+        let middle = (start + end) / 2
+        append(split.left, from: start, to: middle, depth: depth + 1)
+        append(split.right, from: middle, to: end, depth: depth + 1)
+    }
+    append(curve, from: 0, to: 1, depth: 0)
+    return samples
+}
+
+private nonisolated func penCubicSubcurve(_ curve: PenCubic, from start: CGFloat, to end: CGFloat) -> PenCubic {
+    let left = end >= 1 ? curve : splitPenCubic(curve, at: end).left
+    guard start > 0 else { return left }
+    return splitPenCubic(left, at: min(1, start / end)).right
+}
+
+private nonisolated func splitPenCubic(_ curve: PenCubic, at amount: CGFloat) -> (left: PenCubic, right: PenCubic) {
+    let a = lerp(curve.start, curve.control1, amount)
+    let b = lerp(curve.control1, curve.control2, amount)
+    let c = lerp(curve.control2, curve.end, amount)
+    let d = lerp(a, b, amount)
+    let e = lerp(b, c, amount)
+    let middle = lerp(d, e, amount)
+    return (
+        PenCubic(start: curve.start, control1: a, control2: d, end: middle),
+        PenCubic(start: middle, control1: e, control2: c, end: curve.end)
+    )
 }
 
 private nonisolated func cubicPoint(

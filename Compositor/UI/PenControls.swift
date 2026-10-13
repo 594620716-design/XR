@@ -6,17 +6,32 @@ struct PenControls: View {
     var body: some View {
         HStack(spacing: 12) {
             Text("Pen").font(ToolHeaderStyle.titleFont)
-            Picker("Path", selection: Binding(get: { session.penMode }, set: { mode in
-                guard mode != session.penMode else { return }
-                session.cancelPen()
-                session.penMode = mode
+            Picker("Action", selection: Binding(get: { session.penAction }, set: { action in
+                if action != .draw { session.cancelPen() }
+                session.penAction = action
             })) {
-                ForEach(PenMode.allCases, id: \.self) { mode in
-                    Text(mode == .shape ? "Closed" : "Open").tag(mode)
+                ForEach(PenAction.allCases, id: \.self) { action in
+                    Text(action.rawValue).tag(action)
                 }
             }
             .pickerStyle(.segmented).labelsHidden().fixedSize()
-            .help("Create a closed or open editable path. The path has no pixels until it is filled or stroked. Tab switches modes")
+            .help("Draw creates paths; Bend curves a segment; Cut breaks a path; Erase brushes path sections away. Tab switches tools")
+
+            if session.penAction == .erase {
+                Text("Size").scrubbable(sensitivity: 1, value: $session.brushSettings.diameter, range: 1...2000)
+                TextField("Size", value: Binding<Double>(
+                    get: { Double(session.brushSettings.diameter) },
+                    set: { session.brushSettings.diameter = $0.isFinite ? CGFloat(min(2_000, max(1, $0))) : 40 }
+                ), format: .number.precision(.fractionLength(0)))
+                .frame(width: 48).textFieldStyle(.roundedBorder)
+                .arrowSteps(value: { Double(session.brushSettings.diameter) },
+                            change: { session.brushSettings.diameter = CGFloat(min(2_000, max(1, $0))) })
+                .onChange(of: session.brushSettings.diameter) { _, value in
+                    session.brushSettings.diameter = value.isFinite ? min(2_000, max(1, value)) : 40
+                }
+                .unitSuffix("px")
+                .help("Vector eraser diameter; [ and ] change it")
+            }
 
             HStack(spacing: 6) {
                 Text("Foreground")
@@ -32,10 +47,10 @@ struct PenControls: View {
 
             Button("Fill Path") { session.fillPenPathWithForeground() }
                 .disabled(!session.canFillPenPath)
-                .help("Fill the path with the current foreground color on a new pixel layer")
+                .help("Add or update the foreground-color fill while keeping the path editable")
             Button("Stroke Path with Brush") { session.strokePenPathWithBrush() }
                 .disabled(!session.canStrokePenPath)
-                .help("Stroke the path on a new pixel layer with the current \(Int(session.brushSettings.diameter.rounded())) px Brush, hardness and opacity")
+                .help("Add or update an editable path stroke using the current \(Int(session.brushSettings.diameter.rounded())) px Brush, hardness and opacity")
             Button("Load Path as Selection") { session.loadPenPathSelection() }
                 .keyboardShortcut(.return, modifiers: .command)
                 .disabled(!session.canLoadPenPathSelection)

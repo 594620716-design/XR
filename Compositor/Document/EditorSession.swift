@@ -243,13 +243,15 @@ final class EditorSession {
     var shapeLineWidth: Double = 4
     /// The shape being dragged out with the Shape tool, before it becomes a layer.
     var shapeDraft: ShapeDraft?
-    var penMode = PenMode.shape
+    var penAction = PenAction.draw
     /// The path being drawn before it becomes a layer.
     var penDraft: PenDraft? { didSet { if oldValue != nil && penDraft == nil { resumeFileRequests() } } }
     var selectedPenNodeIndex: Int?
     var selectedPenHandle: PenHandle?
     @ObservationIgnored var penLineGestureActive = false
     @ObservationIgnored var penLineGestureHandle: PenHandle?
+    @ObservationIgnored var penBendGesture: PenBendGesture?
+    @ObservationIgnored var penEraseGesture: PenEraseGesture?
     var selectionModeChoice = SelectionMode.replace
     /// Mode implied by the Shift/Option keys currently held, nil when neither is.
     var heldSelectionMode: SelectionMode?
@@ -415,7 +417,6 @@ final class EditorSession {
             brushSettings = settings
         }
         tool = value
-        if value == .pen, let mode = activeLayer?.liveVectorPath?.style.mode { penMode = mode }
         if value.isBrushTool { _ = MetalBrushCoverage.shared }
         if value == .crop, cropRect == nil, let document {
             cropRatioChoice = "Free"
@@ -443,7 +444,7 @@ final class EditorSession {
         case .wand: wandMode = next(wandMode)
         case .lasso: toggleLassoKind()
         case .shape: toggleShapeKind()
-        case .pen: cyclePenMode()
+        case .pen: cyclePenAction()
         case .brush: brushMode = next(brushMode)
         case .blur: blurMode = next(blurMode)
         case .spotHealing: spotHealingMode = next(spotHealingMode)

@@ -39,7 +39,6 @@ struct VectorPathGeometryTests {
         let session = EditorSession()
         session.createDocument(width: 200, height: 160, emptyLayer: true)
         session.selectTool(.pen)
-        session.penMode = .line
         _ = session.beginPenAnchor(at: CGPoint(x: 20, y: 30), closeDistance: 2, constrain: false)
         _ = session.beginPenAnchor(at: CGPoint(x: 120, y: 30), closeDistance: 2, constrain: false)
         #expect(session.finishPen())

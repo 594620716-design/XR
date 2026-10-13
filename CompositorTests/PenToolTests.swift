@@ -4,11 +4,10 @@ import Testing
 
 @MainActor
 struct PenToolTests {
-    private func makeSession(mode: PenMode = .line) -> EditorSession {
+    private func makeSession() -> EditorSession {
         let session = EditorSession()
         session.createDocument(width: 120, height: 100, emptyLayer: true)
         session.selectTool(.pen)
-        session.penMode = mode
         session.foregroundColor = PaletteColor(red: 0.1, green: 0.4, blue: 0.9)
         return session
     }
@@ -16,6 +15,11 @@ struct PenToolTests {
     private func add(_ point: CGPoint, to session: EditorSession, handle: CGPoint? = nil) {
         _ = session.beginPenAnchor(at: point, closeDistance: 2, constrain: false)
         if let handle { session.dragPenHandle(to: handle, constrain: false) }
+    }
+
+    private func closePath(_ session: EditorSession) -> Bool {
+        guard let first = session.penDraft?.nodes.first?.anchor else { return false }
+        return session.beginPenAnchor(at: first, closeDistance: 2, constrain: false)
     }
 
     private func documentAnchors(_ layer: ImageLayer) throws -> [CGPoint] {
@@ -59,7 +63,7 @@ struct PenToolTests {
     }
 
     @Test func committedPenLayerIsAnEditablePathWithoutPaintedPixels() throws {
-        let session = makeSession(mode: .shape)
+        let session = makeSession()
         add(CGPoint(x: 15, y: 15), to: session)
         add(CGPoint(x: 90, y: 20), to: session)
         add(CGPoint(x: 50, y: 75), to: session)
@@ -71,7 +75,7 @@ struct PenToolTests {
     }
 
     @Test func foregroundFillCreatesPixelsButKeepsThePathEditable() throws {
-        let session = makeSession(mode: .shape)
+        let session = makeSession()
         add(CGPoint(x: 15, y: 15), to: session)
         add(CGPoint(x: 90, y: 15), to: session)
         add(CGPoint(x: 50, y: 75), to: session)
@@ -103,7 +107,7 @@ struct PenToolTests {
     }
 
     @Test func filledArtworkMovesAndItsPenNodesRemainEditable() throws {
-        let session = makeSession(mode: .shape)
+        let session = makeSession()
         add(CGPoint(x: 20, y: 20), to: session)
         add(CGPoint(x: 80, y: 20), to: session)
         add(CGPoint(x: 50, y: 70), to: session)
@@ -156,7 +160,7 @@ struct PenToolTests {
     }
 
     @Test func fillingAnUnfinishedPathCommitsThePathAndResultAsOneUndoStep() throws {
-        let session = makeSession(mode: .shape)
+        let session = makeSession()
         add(CGPoint(x: 20, y: 15), to: session)
         add(CGPoint(x: 75, y: 15), to: session)
         add(CGPoint(x: 45, y: 65), to: session)
@@ -173,11 +177,11 @@ struct PenToolTests {
     }
 
     @Test func shapePathClosesAndKeepsItsFillColor() throws {
-        let session = makeSession(mode: .shape)
+        let session = makeSession()
         add(CGPoint(x: 15, y: 15), to: session)
         add(CGPoint(x: 90, y: 20), to: session)
         add(CGPoint(x: 50, y: 75), to: session)
-        #expect(session.finishPen())
+        #expect(closePath(session))
         let style = try #require(session.activeLayer?.liveVectorPath?.style)
         #expect(style.mode == .shape && style.closed)
         #expect(style.nodes.count == 3)
@@ -187,12 +191,12 @@ struct PenToolTests {
     }
 
     @Test func closedShapeCanInsertMoveDeleteAndUndoPoints() throws {
-        let session = makeSession(mode: .shape)
+        let session = makeSession()
         add(CGPoint(x: 15, y: 15), to: session)
         add(CGPoint(x: 85, y: 15), to: session)
         add(CGPoint(x: 85, y: 75), to: session)
         add(CGPoint(x: 15, y: 75), to: session)
-        #expect(session.finishPen())
+        #expect(closePath(session))
         let original = try #require(session.activeLayer?.liveVectorPath?.style)
 
         // The final segment closes from the last point back to the first; it must be editable too.
@@ -211,6 +215,132 @@ struct PenToolTests {
         #expect(session.activeLayer?.liveVectorPath?.style == original)
     }
 
+    @Test func doubleClickSmoothingAddsCollinearHandlesAndIsUndoable() throws {
+        let session = makeSession()
+        add(CGPoint(x: 15, y: 20), to: session)
+        add(CGPoint(x: 50, y: 70), to: session)
+        add(CGPoint(x: 90, y: 15), to: session)
+        #expect(session.finishPen())
+        session.fillPenPathWithForeground()
+        let original = try #require(session.activeLayer?.liveVectorPath?.style)
+
+        #expect(session.smoothPenNode(at: CGPoint(x: 50, y: 70), tolerance: 2))
+        let layer = try #require(session.activeLayer)
+        let node = try #require(layer.liveVectorPath).style.nodes[1]
+        let transform = layer.transform.unitToDocument
+        let anchor = node.anchor.applying(transform)
+        let incoming = node.inHandle.applying(transform)
+        let outgoing = node.outHandle.applying(transform)
+        let incomingVector = CGPoint(x: incoming.x - anchor.x, y: incoming.y - anchor.y)
+        let outgoingVector = CGPoint(x: outgoing.x - anchor.x, y: outgoing.y - anchor.y)
+        #expect(hypot(incomingVector.x, incomingVector.y) > 0)
+        #expect(hypot(outgoingVector.x, outgoingVector.y) > 0)
+        #expect(abs(incomingVector.x * outgoingVector.y - incomingVector.y * outgoingVector.x) < 0.001)
+        #expect(incomingVector.x * outgoingVector.x + incomingVector.y * outgoingVector.y < 0)
+        #expect(layer.liveVectorPath?.style.fill != nil)
+
+        session.undo()
+        #expect(session.activeLayer?.liveVectorPath?.style == original)
+    }
+
+    @Test func bendDragsAStraightSegmentIntoACurveAndIsUndoable() throws {
+        let session = makeSession()
+        add(CGPoint(x: 10, y: 50), to: session)
+        add(CGPoint(x: 90, y: 50), to: session)
+        #expect(session.finishPen())
+        let original = try #require(session.activeLayer?.liveVectorPath?.style)
+        session.penAction = .bend
+
+        #expect(session.beginPenBendGesture(at: CGPoint(x: 50, y: 50), tolerance: 2))
+        session.dragPenBend(to: CGPoint(x: 50, y: 30))
+        session.endPenLineNodeGesture()
+
+        let bent = try #require(session.activeLayer)
+        let nodes = try #require(bent.liveVectorPath).style.nodes
+        let transform = bent.transform.unitToDocument
+        #expect(nodes[0].outHandle.applying(transform).y < 50)
+        #expect(nodes[1].inHandle.applying(transform).y < 50)
+        session.undo()
+        #expect(session.activeLayer?.liveVectorPath?.style == original)
+    }
+
+    @Test func cutOpensAClosedPathAtTheClickedSegment() throws {
+        let session = makeSession()
+        add(CGPoint(x: 20, y: 20), to: session)
+        add(CGPoint(x: 80, y: 20), to: session)
+        add(CGPoint(x: 50, y: 70), to: session)
+        #expect(closePath(session))
+        session.penAction = .cut
+
+        #expect(session.cutPenPath(at: CGPoint(x: 50, y: 20), tolerance: 2))
+        let cut = try #require(session.activeLayer)
+        let style = try #require(cut.liveVectorPath).style
+        let anchors = try documentAnchors(cut)
+        #expect(style.mode == .line && !style.closed && style.nodes.count == 5)
+        #expect(hypot(anchors[0].x - anchors[anchors.count - 1].x,
+                      anchors[0].y - anchors[anchors.count - 1].y) < 0.001)
+    }
+
+    @Test func cutSplitsAnOpenPathIntoTwoEditableLayers() throws {
+        let session = makeSession()
+        add(CGPoint(x: 10, y: 20), to: session)
+        add(CGPoint(x: 50, y: 50), to: session)
+        add(CGPoint(x: 90, y: 20), to: session)
+        #expect(session.finishPen())
+        session.penAction = .cut
+
+        #expect(session.cutPenPath(at: CGPoint(x: 30, y: 35), tolerance: 2))
+        let paths = try #require(session.document).layers.compactMap(\.liveVectorPath)
+        #expect(paths.count == 2)
+        #expect(paths.allSatisfy { !$0.style.closed && $0.style.nodes.count >= 2 })
+    }
+
+    @Test func eraseBrushRemovesCoveredPathAndIsUndoable() throws {
+        let session = makeSession()
+        add(CGPoint(x: 10, y: 50), to: session)
+        add(CGPoint(x: 90, y: 50), to: session)
+        #expect(session.finishPen())
+        let original = try #require(session.activeLayer?.liveVectorPath?.style)
+        session.penAction = .erase
+        let undoCount = session.history.undoCount
+
+        #expect(session.beginPenErase(at: CGPoint(x: 50, y: 50), diameter: 20))
+        session.endPenErase()
+
+        let paths = try #require(session.document).layers.filter { $0.liveVectorPath != nil }
+        #expect(paths.count == 2)
+        let anchors = try paths.map(documentAnchors)
+        #expect(anchors.allSatisfy { $0.count == 2 })
+        #expect(abs(anchors[0].last!.x - 40) < 0.1)
+        #expect(abs(anchors[1].first!.x - 60) < 0.1)
+        #expect(session.history.undoCount == undoCount + 1)
+        session.undo()
+        #expect(session.activeLayer?.liveVectorPath?.style == original)
+    }
+
+    @Test func eraseBrushDragSweepsContinuouslyInOneUndoStep() throws {
+        let session = makeSession()
+        add(CGPoint(x: 10, y: 50), to: session)
+        add(CGPoint(x: 90, y: 50), to: session)
+        #expect(session.finishPen())
+        let original = try #require(session.activeLayer?.liveVectorPath?.style)
+        let undoCount = session.history.undoCount
+        session.penAction = .erase
+
+        #expect(session.beginPenErase(at: CGPoint(x: 30, y: 50), diameter: 10))
+        session.dragPenErase(to: CGPoint(x: 70, y: 50), diameter: 10)
+        session.endPenErase()
+
+        let paths = try #require(session.document).layers.filter { $0.liveVectorPath != nil }
+        #expect(paths.count == 2)
+        let anchors = try paths.map(documentAnchors)
+        #expect(anchors[0].last!.x <= 25.1)
+        #expect(anchors[1].first!.x >= 74.9)
+        #expect(session.history.undoCount == undoCount + 1)
+        session.undo()
+        #expect(session.activeLayer?.liveVectorPath?.style == original)
+    }
+
     @Test func invalidModeClosureAndCoordinatesAreRejected() {
         let nodes = [VectorPathNode(anchor: CGPoint(x: 0, y: 0)),
                      VectorPathNode(anchor: CGPoint(x: 1, y: 1))]
@@ -224,12 +354,12 @@ struct PenToolTests {
         #expect(!outside.isValid)
     }
 
-    @Test func switchingModeCancelsAnUnfinishedPath() {
-        let session = makeSession(mode: .shape)
+    @Test func switchingActionCancelsAnUnfinishedPath() {
+        let session = makeSession()
         add(CGPoint(x: 10, y: 10), to: session)
         #expect(session.penDraft != nil)
-        session.cyclePenMode()
-        #expect(session.penMode == .line)
+        session.cyclePenAction()
+        #expect(session.penAction == .bend)
         #expect(session.penDraft == nil)
         #expect(session.document?.layers.count == 1)
     }
@@ -333,7 +463,6 @@ struct PenToolTests {
 
     @Test func saveSnapshotKeepsTheLivePathAppearanceFallback() throws {
         let session = makeSession()
-        session.penMode = .shape
         add(CGPoint(x: 12, y: 18), to: session)
         add(CGPoint(x: 86, y: 18), to: session)
         add(CGPoint(x: 50, y: 64), to: session)
@@ -349,12 +478,12 @@ struct PenToolTests {
     }
 
     @Test func activeShapeLoadsAsASelectionInDocumentCoordinates() throws {
-        let session = makeSession(mode: .shape)
+        let session = makeSession()
         add(CGPoint(x: 15, y: 20), to: session)
         add(CGPoint(x: 80, y: 20), to: session)
         add(CGPoint(x: 80, y: 70), to: session)
         add(CGPoint(x: 15, y: 70), to: session)
-        #expect(session.finishPen())
+        #expect(closePath(session))
 
         let layerID = try #require(session.activeLayerID)
         let layerIndex = try #require(session.document?.layers.firstIndex(where: { $0.id == layerID }))
@@ -388,7 +517,7 @@ struct PenToolTests {
     }
 
     @Test func loadingAnUnfinishedPathCommitsAndPreservesIt() throws {
-        let session = makeSession(mode: .shape)
+        let session = makeSession()
         add(CGPoint(x: 20, y: 15), to: session)
         add(CGPoint(x: 75, y: 15), to: session)
         add(CGPoint(x: 45, y: 65), to: session)
@@ -406,7 +535,7 @@ struct PenToolTests {
     }
 
     @Test func commandReturnLoadsTheDraftAndKeepsAnEditablePath() throws {
-        let session = makeSession(mode: .shape)
+        let session = makeSession()
         add(CGPoint(x: 20, y: 15), to: session)
         add(CGPoint(x: 75, y: 15), to: session)
         add(CGPoint(x: 45, y: 65), to: session)
