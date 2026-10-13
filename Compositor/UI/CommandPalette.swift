@@ -210,6 +210,8 @@ extension CommandPaletteEntry {
             ("Rectangle", "U", .shape, { $0.shapeKind = .rectangle }),
             ("Ellipse", "U", .shape, { $0.shapeKind = .ellipse }),
             ("Line", "U", .shape, { $0.shapeKind = .line }),
+            ("Pen Shape", "P", .pen, { $0.penMode = .shape }),
+            ("Pen Line", "P", .pen, { $0.penMode = .line }),
             ("Type", "T", .type, nil),
             ("Eyedropper", "I", .eyedropper, nil),
             ("Hand", "H", .hand, nil),
