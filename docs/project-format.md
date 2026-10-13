@@ -1,8 +1,8 @@
-# Compositor project format, versions 1–15
+# Compositor project format, versions 1–16
 
 A `.comp` file is a macOS document package containing `manifest.json` and an `images/` directory of `<layer UUID>.png` assets.
 
-The manifest identifies `com.compositor.project`, version `15` for new saves (versions `1`–`14` remain readable), and the sRGB working space. It stores document UUID, pixel dimensions, active layer UUID, and layers in bottom-to-top order. Each layer stores its UUID, name, visibility, transform (origin, size, clockwise rotation, flips, sampling), and optional image filename. Blank layers have no image asset.
+The manifest identifies `com.compositor.project`, version `16` for new saves (versions `1`–`15` remain readable), and the sRGB working space. It stores document UUID, pixel dimensions, active layer UUID, and layers in bottom-to-top order. Each layer stores its UUID, name, visibility, transform (origin, size, clockwise rotation, flips, sampling), and optional image filename. Blank layers have no image asset.
 
 Embedded PNGs preserve source pixels and transparency; transforms remain separate. Projects survive moving or deleting imported source photos. Saving uses a coordinated atomic package replacement. Unsupported versions, invalid metadata, missing assets, unsafe paths, and oversized data are rejected before replacing the live document.
 
@@ -58,3 +58,5 @@ Version 13 lets a layer's image file be OpenEXR, named `<layer UUID>.exr`: an HD
 Version 14 adds optional `vectorPath` metadata to layers made with the Pen tool. It stores `mode` (`Shape` or `Line`), RGB color, line width, whether the path is closed, and normalized anchor/in/out-handle points. Shapes require at least three points and are closed fills; lines require at least two points and remain open strokes. The layer PNG is still the display fallback. Editing pixels rasterizes the layer and omits stale path metadata from its next save. Files declaring versions 1–13 cannot contain path metadata, and older app builds reject v14.
 
 Version 15 makes Pen layers path-only. Their PNG is a transparent 1×1 identity asset rather than a painted display fallback; fill and brush-stroke commands create separate sibling pixel layers while preserving the editable source path. Saving or exporting a version-14 path normalizes its old fallback pixels to this transparent backing. Pixel-editing tools refuse a live path instead of silently rasterizing it. Version-14 projects remain readable, while older app builds reject v15 rather than hiding or repainting the path incorrectly.
+
+Version 16 keeps a path-only Pen layer transparent until the user fills or brush-strokes it, then stores that appearance on the same editable layer. Optional `fill` metadata records its RGB color; optional `brushStroke` metadata records RGB color, diameter, hardness and opacity. The PNG is a display fallback for those live appearances, so older renderers that understand the version can composite it normally. Moving, transforming or editing path nodes redraws the fallback without separating the visible artwork from its path. Version-15 projects remain readable; their already-created sibling pixel results remain ordinary pixels because they carry no reliable source-path link.

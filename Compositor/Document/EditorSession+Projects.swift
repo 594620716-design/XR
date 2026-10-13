@@ -7,14 +7,7 @@ extension EditorSession {
         var images: [UUID: ImportedImage] = [:]
         var masks: [UUID: ImportedImage] = [:]
         let layers = document.layers.map { layer in
-            if let asset = layer.asset {
-                if layer.liveVectorPath != nil, let image = PenBacking.image {
-                    images[layer.id] = ImportedImage(image: image,
-                        thumbnail: (try? PixelInvert.thumbnail(of: image)) ?? asset.thumbnail, name: asset.name)
-                } else {
-                    images[layer.id] = asset
-                }
-            }
+            if let asset = layer.asset { images[layer.id] = asset }
             if let mask = layer.mask { masks[layer.id] = mask.asset }
             return ProjectLayerRecord(id: layer.id, name: layer.name, isVisible: layer.isVisible,
                 transform: layer.transform, imageFile: layer.asset?.file(for: layer.id), parentID: layer.parentID, isGroup: layer.isGroup, opacity: layer.opacity, blendMode: layer.blendMode, maskFile: layer.mask == nil ? nil : "\(layer.id.uuidString).mask.png", maskEnabled: layer.mask?.isEnabled, maskSourceID: layer.maskSourceID, adjustment: layer.adjustment, maskPlacement: layer.mask?.placement, maskLinked: layer.mask?.isLinked, shape: layer.liveShape?.style, vectorPath: layer.liveVectorPath?.style, effects: layer.effects, text: layer.liveText?.style)
@@ -90,7 +83,20 @@ extension ProjectSnapshot {
                        isVisible: record.isVisible, transform: record.transform, parentID: record.parentID, isGroup: record.isGroup == true, opacity: record.opacity ?? 1, blendMode: record.blendMode ?? .normal, mask: mask(for: record), maskSourceID: record.maskSourceID, adjustment: record.adjustment,
                        shape: LayerShape.loaded(record.shape, image: images[record.id]?.image),
                        vectorPath: images[record.id].flatMap { image in
-                           record.vectorPath.flatMap { LayerVectorPath.loaded(style: $0, image: image.image) }
+                           record.vectorPath.flatMap { stored in
+                               var style = stored
+                               if manifest.version == 14, style.fill == nil, style.brushStroke == nil {
+                                   if style.closed {
+                                       style.fill = LayerVectorPathFill(red: style.red, green: style.green, blue: style.blue)
+                                   } else {
+                                       style.brushStroke = LayerVectorPathBrushStroke(
+                                           red: style.red, green: style.green, blue: style.blue,
+                                           diameter: min(style.lineWidth, 2_100), hardness: 1, opacity: 1
+                                       )
+                                   }
+                               }
+                               return LayerVectorPath.loaded(style: style, image: image.image)
+                           }
                        },
                        effects: record.effects,
                        text: LayerText.loaded(record.text, image: images[record.id]?.image))

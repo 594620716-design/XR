@@ -30,6 +30,34 @@ nonisolated enum PenHandle: Equatable, Sendable {
     case outgoing
 }
 
+nonisolated struct LayerVectorPathFill: Codable, Equatable, Sendable {
+    var red: Double
+    var green: Double
+    var blue: Double
+
+    var isValid: Bool {
+        red.isFinite && green.isFinite && blue.isFinite &&
+            (0...1).contains(red) && (0...1).contains(green) && (0...1).contains(blue)
+    }
+}
+
+nonisolated struct LayerVectorPathBrushStroke: Codable, Equatable, Sendable {
+    var red: Double
+    var green: Double
+    var blue: Double
+    var diameter: Double
+    var hardness: Double
+    var opacity: Double
+
+    var isValid: Bool {
+        red.isFinite && green.isFinite && blue.isFinite &&
+            (0...1).contains(red) && (0...1).contains(green) && (0...1).contains(blue) &&
+            diameter.isFinite && (1...2_100).contains(diameter) &&
+            hardness.isFinite && (0...1).contains(hardness) &&
+            opacity.isFinite && (0.01...1).contains(opacity)
+    }
+}
+
 nonisolated struct LayerVectorPathStyle: Codable, Equatable, Sendable {
     var mode: PenMode
     var red: Double
@@ -38,6 +66,8 @@ nonisolated struct LayerVectorPathStyle: Codable, Equatable, Sendable {
     var lineWidth: Double
     var nodes: [VectorPathNode]
     var closed: Bool
+    var fill: LayerVectorPathFill? = nil
+    var brushStroke: LayerVectorPathBrushStroke? = nil
 
     var isValid: Bool {
         let enoughNodes = closed ? nodes.count >= 3 : nodes.count >= 2
@@ -47,7 +77,8 @@ nonisolated struct LayerVectorPathStyle: Codable, Equatable, Sendable {
               lineWidth.isFinite,
               (1...5_000).contains(lineWidth),
               red.isFinite, green.isFinite, blue.isFinite,
-              (0...1).contains(red), (0...1).contains(green), (0...1).contains(blue)
+              (0...1).contains(red), (0...1).contains(green), (0...1).contains(blue),
+              fill?.isValid != false, brushStroke?.isValid != false
         else { return false }
         return nodes.allSatisfy { node in
             node.isFinite &&
@@ -104,6 +135,8 @@ nonisolated struct PenDraft {
     var lineWidth: Double
     var nodes: [VectorPathNode]
     var hoverPoint: CGPoint?
+    var fill: LayerVectorPathFill? = nil
+    var brushStroke: LayerVectorPathBrushStroke? = nil
 }
 
 extension ImageLayer {
@@ -151,54 +184,46 @@ extension EditorSession {
         }
     }
 
-    /// Fills the current editable path on a new pixel layer. The Pen layer remains the active, editable source.
-    /// As in other path editors, filling an open path joins its endpoints for the duration of the fill.
+    /// Adds or updates the live fill on the editable path. Filling an open path joins its endpoints visually without
+    /// closing the editable path, so its original geometry is still available for a brush stroke or selection.
     func fillPenPathWithForeground() {
-        guard canEditLayers,
-              let document,
-              let path = penDocumentPath(closeOpenPath: true, requiresArea: true)
-        else { NSSound.beep(); return }
-        let name = nextPenResultName("Path Fill")
-        do {
-            let result = try filledPenPath(path, color: foregroundColor, canvas: document.size, name: name)
-            installPenResult(result.asset, transform: result.transform, name: name, editName: "Fill Path")
-        } catch {
-            brushError = error.localizedDescription
-        }
+        guard canFillPenPath else { NSSound.beep(); return }
+        let hadDraft = penDraft != nil
+        finishOpacityEdit()
+        beginEdit("Fill Path")
+        defer { endEdit() }
+        if hadDraft, !finishPen() { return }
+        guard var style = activeLayer?.liveVectorPath?.style else { return }
+        style.red = Double(foregroundColor.red)
+        style.green = Double(foregroundColor.green)
+        style.blue = Double(foregroundColor.blue)
+        style.fill = LayerVectorPathFill(red: style.red, green: style.green, blue: style.blue)
+        replaceActivePenPath(with: style, preview: false)
     }
 
-    /// Paints the current editable path on a new pixel layer with the current Brush size, hardness and opacity.
-    /// The stroke uses the current foreground color and does not consume or rasterize the Pen path.
+    /// Adds or updates a live brush stroke on the editable path. Its current brush color, size, hardness and opacity
+    /// are retained so moving a node can redraw the same stroke without losing the path.
     func strokePenPathWithBrush() {
-        guard canEditLayers,
-              let document,
-              let geometry = penDocumentGeometry(closeOpenPath: false),
-              penDocumentPath(closeOpenPath: false, requiresArea: false) != nil
-        else { NSSound.beep(); return }
-        let name = nextPenResultName("Path Stroke")
-        do {
-            var settings = brushSettings
-            settings.red = foregroundColor.red
-            settings.green = foregroundColor.green
-            settings.blue = foregroundColor.blue
-            settings.smoothing = 0
-            settings.erasing = false
-            settings.healing = false
-            guard let points = flattenedPenPoints(nodes: geometry.nodes, closed: geometry.closed,
-                                                  flatness: max(0.2, min(0.75, settings.diameter / 32))),
-                  points.count >= 2 else { throw BrushStrokeError.pathTooComplex }
-            let blank = ImageLayer(name: name, blankSize: document.size)
-            let stroke = try BrushStroke(layer: blank, mask: false, settings: settings,
-                                         canvas: document.size, useGPU: false)
-            let used = document.layers.reduce(0) { $0 + ($1.asset.map { $0.image.width * $0.image.height } ?? 0) }
-            stroke.pixelLimit = max(0, DocumentLimits.documentPixelBudget - used)
-            try stroke.appendPolyline(points)
-            guard !stroke.patches.isEmpty else { NSSound.beep(); return }
-            let result = try stroke.paintSnapshot()
-            installPenResult(result.asset, transform: result.transform, name: name, editName: "Stroke Path")
-        } catch {
-            brushError = error.localizedDescription
-        }
+        guard canStrokePenPath else { NSSound.beep(); return }
+        let hadDraft = penDraft != nil
+        finishOpacityEdit()
+        beginEdit("Stroke Path")
+        defer { endEdit() }
+        if hadDraft, !finishPen() { return }
+        guard var style = activeLayer?.liveVectorPath?.style else { return }
+        style.red = Double(foregroundColor.red)
+        style.green = Double(foregroundColor.green)
+        style.blue = Double(foregroundColor.blue)
+        style.lineWidth = Double(brushSettings.diameter)
+        style.brushStroke = LayerVectorPathBrushStroke(
+            red: style.red,
+            green: style.green,
+            blue: style.blue,
+            diameter: Double(brushSettings.diameter),
+            hardness: Double(brushSettings.hardness),
+            opacity: Double(brushSettings.opacity)
+        )
+        replaceActivePenPath(with: style, preview: false)
     }
 
     @discardableResult
@@ -350,7 +375,7 @@ extension EditorSession {
                                                  t: hit.t, closed: proposed.closed)
                 selectedPenNodeIndex = hit.segmentIndex + 1
                 selectedPenHandle = nil
-                replaceActivePenPath(with: proposed)
+                replaceActivePenPath(with: proposed, preview: true)
                 return selectedPenNodeIndex
             }
         }
@@ -398,7 +423,7 @@ extension EditorSession {
                     }
                 }
             }
-            replaceActivePenPath(with: proposed)
+            replaceActivePenPath(with: proposed, preview: true)
             return
         }
 
@@ -412,13 +437,17 @@ extension EditorSession {
         proposed.nodes[index].inHandle.y += delta.y
         proposed.nodes[index].outHandle.x += delta.x
         proposed.nodes[index].outHandle.y += delta.y
-        replaceActivePenPath(with: proposed)
+        replaceActivePenPath(with: proposed, preview: true)
     }
 
     func endPenLineNodeGesture() {
         guard penLineGestureActive else { return }
         penLineGestureActive = false
         penLineGestureHandle = nil
+        if let id = activeLayerID,
+           let index = document?.layers.firstIndex(where: { $0.id == id }) {
+            redrawVectorPath(at: index)
+        }
         endEdit()
     }
 
@@ -436,7 +465,7 @@ extension EditorSession {
         proposed.nodes.remove(at: nodeIndex)
         selectedPenNodeIndex = min(nodeIndex, proposed.nodes.count - 1)
         selectedPenHandle = nil
-        replaceActivePenPath(with: proposed)
+        replaceActivePenPath(with: proposed, preview: false)
         endEdit()
         return true
     }
@@ -446,21 +475,35 @@ extension EditorSession {
               document.layers.indices.contains(index),
               let vectorPath = document.layers[index].liveVectorPath,
               let asset = document.layers[index].asset,
-              let image = PenBacking.image
+              let image = vectorPathImage(style: vectorPath.style, size: document.layers[index].transform.size),
+              let thumbnail = try? PixelInvert.thumbnail(of: image)
         else { return }
-        // Current path backings are already transparent 1×1 images, including ones just reopened from disk.
-        guard vectorPath.image.width != 1 || vectorPath.image.height != 1,
-              let thumbnail = try? PixelInvert.thumbnail(of: image) else { return }
         self.document?.layers[index].asset = ImportedImage(image: image, thumbnail: thumbnail, name: asset.name)
         self.document?.layers[index].vectorPath?.image = image
     }
 
-    private func replaceActivePenPath(with proposed: LayerVectorPathStyle) {
+    func vectorPathTransformPreview(for layer: ImageLayer, transform: LayerTransform) -> CGImage? {
+        guard transformEdit != nil,
+              let vectorPath = layer.liveVectorPath,
+              vectorPath.style.fill != nil || vectorPath.style.brushStroke != nil,
+              abs(transform.size.width - CGFloat(vectorPath.image.width)) >= 0.5 ||
+                abs(transform.size.height - CGFloat(vectorPath.image.height)) >= 0.5
+        else { return nil }
+        let scale = min(1, 2_048 / max(max(transform.size.width, transform.size.height), 1))
+        return vectorPathImage(
+            style: vectorPath.style,
+            size: CGSize(width: max(1, transform.size.width * scale),
+                         height: max(1, transform.size.height * scale)),
+            appearanceScale: scale
+        )
+    }
+
+    private func replaceActivePenPath(with proposed: LayerVectorPathStyle, preview: Bool) {
         guard let id = activeLayerID,
               let document,
               let index = document.layers.firstIndex(where: { $0.id == id }),
               document.layers.indices.contains(index),
-              let currentPath = document.layers[index].liveVectorPath,
+              document.layers[index].liveVectorPath != nil,
               let oldAsset = document.layers[index].asset
         else { return }
         let oldTransform = document.layers[index].transform
@@ -470,10 +513,27 @@ extension EditorSession {
             color: PaletteColor(red: CGFloat(proposed.red), green: CGFloat(proposed.green), blue: CGFloat(proposed.blue)),
             lineWidth: proposed.lineWidth,
             nodes: localNodes,
-            hoverPoint: nil
+            hoverPoint: nil,
+            fill: proposed.fill,
+            brushStroke: proposed.brushStroke
         )
         guard let committed = committedPenStyle(draft, closed: proposed.closed) else { return }
         let fullSize = committed.box.size
+        let painted = committed.style.fill != nil || committed.style.brushStroke != nil
+        let pixelCount = painted ? Int(ceil(fullSize.width)) * Int(ceil(fullSize.height)) : 1
+        let used = document.layers.indices.filter { $0 != index }.reduce(0) {
+            $0 + (document.layers[$1].asset.map { $0.image.width * $0.image.height } ?? 0)
+        }
+        guard used + pixelCount <= DocumentLimits.documentPixelBudget else {
+            brushError = ProjectError.tooLarge.localizedDescription
+            return
+        }
+        let scale = preview && painted ? min(1, 2_048 / max(max(fullSize.width, fullSize.height), 1)) : 1
+        let imageSize = CGSize(width: max(1, fullSize.width * scale), height: max(1, fullSize.height * scale))
+        guard let image = vectorPathImage(style: committed.style, size: imageSize, appearanceScale: scale) else {
+            brushError = BrushStrokeError.pathTooComplex.localizedDescription
+            return
+        }
 
         let centerUnit = CGPoint(
             x: committed.box.midX / max(oldTransform.size.width, 1),
@@ -483,13 +543,8 @@ extension EditorSession {
         var transform = oldTransform
         transform.size = fullSize
         transform.origin = CGPoint(x: center.x - fullSize.width / 2, y: center.y - fullSize.height / 2)
-        let image = currentPath.image.width == 1 && currentPath.image.height == 1
-            ? currentPath.image : PenBacking.image
-        guard let image else { return }
-        if image !== currentPath.image {
-            let thumbnail = (try? PixelInvert.thumbnail(of: image)) ?? oldAsset.thumbnail
-            self.document?.layers[index].asset = ImportedImage(image: image, thumbnail: thumbnail, name: oldAsset.name)
-        }
+        let thumbnail = preview ? oldAsset.thumbnail : ((try? PixelInvert.thumbnail(of: image)) ?? oldAsset.thumbnail)
+        self.document?.layers[index].asset = ImportedImage(image: image, thumbnail: thumbnail, name: oldAsset.name)
         self.document?.layers[index].vectorPath = LayerVectorPath(style: committed.style, image: image)
         self.document?.layers[index].transform = transform
         if let mask = document.layers[index].mask, mask.placement == nil {
@@ -529,52 +584,6 @@ extension EditorSession {
         penDocumentPath(closeOpenPath: true, requiresArea: true)
     }
 
-    private func filledPenPath(_ path: CGPath, color: PaletteColor, canvas: CGSize, name: String) throws
-        -> (asset: ImportedImage, transform: LayerTransform) {
-        let canvas = CGRect(origin: .zero, size: canvas)
-        let box = path.boundingBoxOfPath.insetBy(dx: -1, dy: -1).integral.intersection(canvas)
-        guard !box.isNull, !box.isEmpty,
-              box.width <= DocumentLimits.maxSideExtent,
-              box.height <= DocumentLimits.maxSideExtent,
-              box.width * box.height <= DocumentLimits.maxSurfaceExtent else { throw ProjectError.tooLarge }
-        let used = document?.layers.reduce(0) { $0 + ($1.asset.map { $0.image.width * $0.image.height } ?? 0) } ?? 0
-        guard used + Int(box.width * box.height) <= DocumentLimits.documentPixelBudget else { throw ProjectError.tooLarge }
-        let context = try BrushRaster.context(width: Int(box.width), height: Int(box.height), mask: false)
-        context.setAllowsAntialiasing(true)
-        context.setShouldAntialias(true)
-        context.translateBy(x: -box.minX, y: -box.minY)
-        let components = [color.red, color.green, color.blue, CGFloat(1)]
-        guard let fillColor = context.colorSpace.flatMap({ CGColor(colorSpace: $0, components: components) })
-        else { throw ExportError.render }
-        context.setFillColor(fillColor)
-        context.addPath(path)
-        context.fillPath(using: .winding)
-        guard let image = context.makeImage() else { throw ExportError.render }
-        let asset = ImportedImage(image: image, thumbnail: try PixelInvert.thumbnail(of: image), name: name)
-        return (asset, LayerTransform(origin: box.origin, size: box.size))
-    }
-
-    /// A Pen result is deliberately a sibling pixel layer: the source remains a vector path and stays selected.
-    private func installPenResult(_ asset: ImportedImage, transform: LayerTransform,
-                                  name: String, editName: String) {
-        let hadDraft = penDraft != nil
-        finishOpacityEdit()
-        beginEdit(editName)
-        defer { endEdit() }
-        if hadDraft, !finishPen() { return }
-        guard let document,
-              let sourceID = activeLayerID,
-              let sourceIndex = document.layers.firstIndex(where: { $0.id == sourceID }),
-              document.layers[sourceIndex].liveVectorPath != nil else { return }
-        let result = ImageLayer(id: UUID(), asset: asset, name: name, isVisible: true,
-                                transform: transform, parentID: document.layers[sourceIndex].parentID)
-        // Older projects may contain the Pen path's former painted preview. Replace it with the transparent
-        // backing before adding the explicit result, while keeping the vector source visible and editable.
-        redrawVectorPath(at: sourceIndex)
-        self.document?.layers.insert(result, at: sourceIndex + 1)
-        activeLayerID = sourceID
-    }
-
     private func committedPenStyle(_ draft: PenDraft, closed: Bool) -> (style: LayerVectorPathStyle, box: CGRect)? {
         guard draft.nodes.count >= (closed ? 3 : 2),
               draft.nodes.allSatisfy(\.isFinite),
@@ -592,14 +601,15 @@ extension EditorSession {
             maxX = max(maxX, point.x)
             maxY = max(maxY, point.y)
         }
-        let padding: CGFloat = 1
+        let padding = max(1, CGFloat(draft.brushStroke?.diameter ?? 0) / 2 + (draft.brushStroke == nil ? 0 : 2))
         var box = CGRect(x: minX - padding, y: minY - padding,
                          width: max(maxX - minX + padding * 2, 1),
                          height: max(maxY - minY + padding * 2, 1)).integral
         box.size.width = max(box.size.width, 1)
         box.size.height = max(box.size.height, 1)
         guard box.width <= DocumentLimits.maxSideExtent,
-              box.height <= DocumentLimits.maxSideExtent
+              box.height <= DocumentLimits.maxSideExtent,
+              (draft.fill == nil && draft.brushStroke == nil || box.width * box.height <= DocumentLimits.maxSurfaceExtent)
         else { return nil }
         let normalized = draft.nodes.map { node in
             VectorPathNode(
@@ -615,7 +625,9 @@ extension EditorSession {
             blue: Double(draft.color.blue),
             lineWidth: min(max(draft.lineWidth, 1), 5_000),
             nodes: normalized,
-            closed: closed
+            closed: closed,
+            fill: draft.fill,
+            brushStroke: draft.brushStroke
         )
         guard style.isValid else { return nil }
         return (style, box)
@@ -623,6 +635,67 @@ extension EditorSession {
 
     private func nextVectorPathName() -> String {
         nextPenResultName("Path")
+    }
+
+    private func vectorPathImage(
+        style: LayerVectorPathStyle,
+        size: CGSize,
+        appearanceScale: CGFloat = 1
+    ) -> CGImage? {
+        guard style.isValid else { return nil }
+        guard style.fill != nil || style.brushStroke != nil else { return PenBacking.image }
+        guard size.width.isFinite, size.height.isFinite,
+              size.width >= 1, size.height >= 1,
+              size.width <= DocumentLimits.maxSideExtent,
+              size.height <= DocumentLimits.maxSideExtent,
+              size.width * size.height <= DocumentLimits.maxSurfaceExtent
+        else { return nil }
+
+        let width = max(1, Int(ceil(size.width)))
+        let height = max(1, Int(ceil(size.height)))
+        guard let context = try? BrushRaster.context(width: width, height: height, mask: false) else { return nil }
+        context.setAllowsAntialiasing(true)
+        context.setShouldAntialias(true)
+        let drawSize = CGSize(width: CGFloat(width), height: CGFloat(height))
+        let nodes = style.nodes(in: drawSize)
+
+        if let fill = style.fill {
+            context.setFillColor(CGColor(srgbRed: CGFloat(fill.red), green: CGFloat(fill.green),
+                                         blue: CGFloat(fill.blue), alpha: 1))
+            context.addPath(LayerVectorPathStyle.path(nodes: nodes, closed: true))
+            context.fillPath(using: .winding)
+        }
+
+        if let painted = style.brushStroke {
+            var settings = BrushSettings()
+            settings.diameter = max(1, CGFloat(painted.diameter) * appearanceScale)
+            settings.hardness = CGFloat(painted.hardness)
+            settings.opacity = CGFloat(painted.opacity)
+            settings.red = CGFloat(painted.red)
+            settings.green = CGFloat(painted.green)
+            settings.blue = CGFloat(painted.blue)
+            guard let points = flattenedPenPoints(
+                nodes: nodes,
+                closed: style.closed,
+                flatness: max(0.2, min(0.75, settings.diameter / 32))
+            ), points.count >= 2 else { return nil }
+            do {
+                let blank = ImageLayer(name: "Path Stroke", blankSize: drawSize)
+                let stroke = try BrushStroke(layer: blank, mask: false, settings: settings,
+                                             canvas: drawSize, useGPU: false)
+                stroke.pixelLimit = width * height
+                try stroke.appendPolyline(points)
+                for patch in stroke.patches {
+                    context.saveGState()
+                    context.setBlendMode(.normal)
+                    context.translateBy(x: patch.rect.minX, y: patch.rect.maxY)
+                    context.scaleBy(x: 1, y: -1)
+                    context.draw(patch.image, in: CGRect(origin: .zero, size: patch.rect.size))
+                    context.restoreGState()
+                }
+            } catch { return nil }
+        }
+        return context.makeImage()
     }
 
     private func nextPenResultName(_ base: String) -> String {

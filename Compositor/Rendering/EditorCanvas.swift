@@ -1070,7 +1070,7 @@ final class CanvasView: NSView {
                     limit: session.transformEdit != nil ? min(2048, steady) : steady)
             }()
             // A stroke or drop shadow is drawn around the layer's pixels, on a canvas grown to hold it.
-            if stroke == nil, layer.asset != nil, layer.liveVectorPath == nil,
+            if stroke == nil, layer.asset != nil,
                let effects = session.effectsPreviews.preview(for: layer, mask: mask, transform: transform,
                     maskPlacement: session.displayedMaskPlacement(for: layer), completion: { [weak self] in
                         self?.needsDisplay = true
@@ -1081,8 +1081,9 @@ final class CanvasView: NSView {
                     opacity: opacity, blendMode: blendMode(of: layer), mask: nil, in: context)
                 return
             }
-            if stroke == nil, layer.liveVectorPath != nil {
-                // Editable paths have no pixels; the Pen overlay draws their geometry and controls.
+            if stroke == nil, let vector = session.vectorPathTransformPreview(for: layer, transform: transform) {
+                LayerRenderer.draw(vector, transform: transform, center: center(transform.center), scale: scale,
+                    opacity: opacity, blendMode: blendMode(of: layer), mask: mask, in: context)
             } else if stroke == nil, let shaped = session.shapeTransformPreview(for: layer, transform: transform) {
                 LayerRenderer.draw(shaped, transform: transform, center: center(transform.center), scale: scale,
                     opacity: opacity, blendMode: blendMode(of: layer), mask: mask, in: context)
@@ -3206,7 +3207,7 @@ extension CanvasView {
                     height: layer.asset?.image.height ?? Int(transform.size.height.rounded()),
                     limit: session.transformEdit != nil ? min(2048, steady) : steady)
             }()
-            if layer.asset != nil, layer.liveVectorPath == nil,
+            if layer.asset != nil,
                let effects = session.effectsPreviews.preview(for: layer, mask: mask, transform: transform,
                     maskPlacement: session.displayedMaskPlacement(for: layer), completion: { [weak self] in
                         self?.needsDisplay = true
@@ -3216,8 +3217,8 @@ extension CanvasView {
                 return GPUBlend.faded(image, opacity)
             }
             let placed: CIImage?
-            if layer.liveVectorPath != nil {
-                placed = nil
+            if let vector = session.vectorPathTransformPreview(for: layer, transform: transform) {
+                placed = placement.place(vector, transform: transform)
             } else if let shaped = session.shapeTransformPreview(for: layer, transform: transform) {
                 placed = placement.place(shaped, transform: transform)
             } else if let asset = layer.asset, session.hueSaturation?.previewImage(for: layer.id) == nil,

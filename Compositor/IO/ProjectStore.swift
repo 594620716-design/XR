@@ -17,7 +17,7 @@ extension UTType {
 
 nonisolated struct ProjectManifest: Codable, Sendable {
     /// The format version new saves write.
-    static let current = 15
+    static let current = 16
     /// Every version `load` accepts. The package-header check, the manifest check and the error
     /// message all read this, so they cannot drift apart when `current` is bumped.
     static let supported = 1...ProjectManifest.current
@@ -55,7 +55,7 @@ nonisolated struct ProjectLayerRecord: Codable, Sendable {
     var maskLinked: Bool? = nil
     /// A shape layer's shape, drawn again when the layer is scaled. Older versions ignore it and keep the pixels.
     var shape: LayerShapeStyle? = nil
-    /// A Pen layer's editable path. From version 15 its PNG is only a transparent identity backing.
+    /// A Pen layer's editable path. Version 16 may also retain a live fill and brush stroke in its PNG fallback.
     var vectorPath: LayerVectorPathStyle? = nil
     /// The stroke and drop shadow drawn around the layer.
     var effects: LayerEffects? = nil
@@ -226,6 +226,9 @@ actor ProjectStore {
                 guard manifest.version >= 14, vectorPath.isValid,
                       layer.imageFile == "\(layer.id.uuidString).png", layer.isGroup != true, layer.adjustment == nil,
                       layer.shape == nil, layer.text == nil else { throw ProjectError.invalid }
+                if vectorPath.fill != nil || vectorPath.brushStroke != nil {
+                    guard manifest.version >= 16 else { throw ProjectError.invalid }
+                }
             }
             if let text = layer.text {
                 // Per-letter colors arrived in version 10, per-letter faces in version 11.
