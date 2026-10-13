@@ -153,7 +153,7 @@ final class EditorSession {
     private var fileRequestWaiters: [CheckedContinuation<Void, Never>] = []
     var canStartProjectOperation: Bool {
         _ = showsBusy // Re-evaluate in the UI when a long operation starts or ends.
-        return selectionAmountOperation == nil && colorRange == nil && textDraft == nil && penDraft == nil && !penLineGestureActive && !penWidthEditActive && !isProjectBusy && !isImporting && brushStroke == nil && warpStroke == nil && levels == nil && !showsNewDocument && !showsImporter && renamingLayerID == nil && importError == nil && adjustmentEditingID == nil && !showsConversionSheet
+        return selectionAmountOperation == nil && colorRange == nil && textDraft == nil && penDraft == nil && !penLineGestureActive && !isProjectBusy && !isImporting && brushStroke == nil && warpStroke == nil && levels == nil && !showsNewDocument && !showsImporter && renamingLayerID == nil && importError == nil && adjustmentEditingID == nil && !showsConversionSheet
     }
     func waitForFileRequest() async {
         while !canStartProjectOperation {
@@ -244,15 +244,12 @@ final class EditorSession {
     /// The shape being dragged out with the Shape tool, before it becomes a layer.
     var shapeDraft: ShapeDraft?
     var penMode = PenMode.shape
-    /// A Line path's thickness in document pixels.
-    var penLineWidth: Double = 4
     /// The path being drawn before it becomes a layer.
     var penDraft: PenDraft? { didSet { if oldValue != nil && penDraft == nil { resumeFileRequests() } } }
     var selectedPenNodeIndex: Int?
     var selectedPenHandle: PenHandle?
     @ObservationIgnored var penLineGestureActive = false
     @ObservationIgnored var penLineGestureHandle: PenHandle?
-    @ObservationIgnored var penWidthEditActive = false
     var selectionModeChoice = SelectionMode.replace
     /// Mode implied by the Shift/Option keys currently held, nil when neither is.
     var heldSelectionMode: SelectionMode?
@@ -666,7 +663,7 @@ final class EditorSession {
     var canUseHistory: Bool {
         _ = showsBusy
         return selectionAmountOperation == nil && colorRange == nil && textDraft == nil && penDraft == nil
-            && !penLineGestureActive && !penWidthEditActive && !isProjectBusy && !isImporting
+            && !penLineGestureActive && !isProjectBusy && !isImporting
             && brushStroke == nil && warpStroke == nil && levels == nil && !showsNewDocument
             && !showsImporter && renamingLayerID == nil && importError == nil && transformEdit == nil
             && !showsConversionSheet

@@ -23,6 +23,19 @@ struct PenToolTests {
         return vector.style.nodes.map { node in node.anchor.applying(layer.transform.unitToDocument) }
     }
 
+    private func pixel(_ layer: ImageLayer, at point: CGPoint) throws -> (red: Int, green: Int, blue: Int, alpha: Int) {
+        let image = try #require(layer.asset?.image)
+        let mapping = BrushRaster.pixelToDocument(layer.transform, width: image.width, height: image.height)
+        let local = point.applying(mapping.inverted())
+        guard local.x >= 0, local.y >= 0, local.x < CGFloat(image.width), local.y < CGFloat(image.height) else {
+            return (0, 0, 0, 0)
+        }
+        let context = try BrushRaster.copy(image)
+        let bytes = try #require(context.data).assumingMemoryBound(to: UInt8.self)
+        let offset = Int(local.y) * context.bytesPerRow + Int(local.x) * 4
+        return (Int(bytes[offset]), Int(bytes[offset + 1]), Int(bytes[offset + 2]), Int(bytes[offset + 3]))
+    }
+
     @Test func openLineCommitsAsOneEditableLayerAndUndoRemovesIt() throws {
         let session = makeSession()
         let undoCount = session.history.undoCount
@@ -33,7 +46,7 @@ struct PenToolTests {
 
         let layer = try #require(session.activeLayer)
         let vector = try #require(layer.liveVectorPath)
-        #expect(layer.name == "Pen Line 1")
+        #expect(layer.name == "Path 1")
         #expect(vector.style.mode == .line && !vector.style.closed)
         #expect(vector.style.nodes.count == 3)
         #expect(vector.style.nodes[1].inHandle != vector.style.nodes[1].anchor)
@@ -43,6 +56,92 @@ struct PenToolTests {
         #expect(session.document?.layers.map(\.name) == ["Layer 1"])
         session.redo()
         #expect(session.activeLayer?.liveVectorPath?.style == vector.style)
+    }
+
+    @Test func committedPenLayerIsAnEditablePathWithoutPaintedPixels() throws {
+        let session = makeSession(mode: .shape)
+        add(CGPoint(x: 15, y: 15), to: session)
+        add(CGPoint(x: 90, y: 20), to: session)
+        add(CGPoint(x: 50, y: 75), to: session)
+        #expect(session.finishPen())
+
+        let path = try #require(session.activeLayer)
+        #expect(path.liveVectorPath != nil)
+        #expect(try pixel(path, at: CGPoint(x: 50, y: 35)).alpha == 0)
+    }
+
+    @Test func foregroundFillCreatesPixelsButKeepsThePathEditable() throws {
+        let session = makeSession(mode: .shape)
+        add(CGPoint(x: 15, y: 15), to: session)
+        add(CGPoint(x: 90, y: 15), to: session)
+        add(CGPoint(x: 50, y: 75), to: session)
+        #expect(session.finishPen())
+        let pathID = try #require(session.activeLayerID)
+        session.foregroundColor = PaletteColor(red: 1, green: 0, blue: 0)
+        let undoCount = session.history.undoCount
+
+        #expect(session.canFillPenPath)
+        session.fillPenPathWithForeground()
+
+        let document = try #require(session.document)
+        let source = try #require(document.layers.first(where: { $0.id == pathID }))
+        let fill = try #require(document.layers.first(where: { $0.name == "Path Fill 1" }))
+        #expect(source.liveVectorPath != nil && source.isVisible)
+        #expect(fill.liveVectorPath == nil)
+        #expect(session.activeLayerID == pathID)
+        #expect(session.history.undoCount == undoCount + 1)
+        let color = try pixel(fill, at: CGPoint(x: 50, y: 35))
+        #expect(color.red > 240, "red: \(color)")
+        #expect(color.green < 5, "green: \(color)")
+        #expect(color.blue < 5, "blue: \(color)")
+        #expect(color.alpha > 240, "alpha: \(color)")
+
+        session.undo()
+        #expect(session.document?.layers.contains(where: { $0.name == "Path Fill 1" }) == false)
+        #expect(session.activeLayer?.liveVectorPath != nil)
+        #expect(session.activeLayer?.isVisible == true)
+    }
+
+    @Test func brushStrokeUsesCurrentBrushAndPreservesTheOpenPath() throws {
+        let session = makeSession()
+        add(CGPoint(x: 20, y: 50), to: session)
+        add(CGPoint(x: 100, y: 50), to: session)
+        #expect(session.finishPen())
+        let pathID = try #require(session.activeLayerID)
+        session.foregroundColor = PaletteColor(red: 0, green: 1, blue: 0)
+        session.brushSettings.diameter = 12
+        session.brushSettings.hardness = 1
+        session.brushSettings.opacity = 0.5
+
+        #expect(session.canStrokePenPath)
+        session.strokePenPathWithBrush()
+
+        let document = try #require(session.document)
+        let source = try #require(document.layers.first(where: { $0.id == pathID }))
+        let stroke = try #require(document.layers.first(where: { $0.name == "Path Stroke 1" }))
+        let center = try pixel(stroke, at: CGPoint(x: 60, y: 50))
+        #expect(source.liveVectorPath != nil && source.isVisible)
+        #expect(stroke.liveVectorPath == nil && session.activeLayerID == pathID)
+        #expect(center.red < 5 && center.green > 110 && center.blue < 5)
+        #expect((110...140).contains(center.alpha))
+        #expect(try pixel(stroke, at: CGPoint(x: 60, y: 60)).alpha == 0)
+    }
+
+    @Test func fillingAnUnfinishedPathCommitsThePathAndResultAsOneUndoStep() throws {
+        let session = makeSession(mode: .shape)
+        add(CGPoint(x: 20, y: 15), to: session)
+        add(CGPoint(x: 75, y: 15), to: session)
+        add(CGPoint(x: 45, y: 65), to: session)
+        let undoCount = session.history.undoCount
+
+        session.fillPenPathWithForeground()
+
+        #expect(session.penDraft == nil)
+        #expect(session.document?.layers.map(\.name) == ["Layer 1", "Path 1", "Path Fill 1"])
+        #expect(session.activeLayer?.liveVectorPath != nil)
+        #expect(session.history.undoCount == undoCount + 1)
+        session.undo()
+        #expect(session.document?.layers.map(\.name) == ["Layer 1"])
     }
 
     @Test func shapePathClosesAndKeepsItsFillColor() throws {
@@ -57,6 +156,31 @@ struct PenToolTests {
         #expect(abs(style.red - 0.1) < 0.001)
         #expect(abs(style.green - 0.4) < 0.001)
         #expect(abs(style.blue - 0.9) < 0.001)
+    }
+
+    @Test func closedShapeCanInsertMoveDeleteAndUndoPoints() throws {
+        let session = makeSession(mode: .shape)
+        add(CGPoint(x: 15, y: 15), to: session)
+        add(CGPoint(x: 85, y: 15), to: session)
+        add(CGPoint(x: 85, y: 75), to: session)
+        add(CGPoint(x: 15, y: 75), to: session)
+        #expect(session.finishPen())
+        let original = try #require(session.activeLayer?.liveVectorPath?.style)
+
+        // The final segment closes from the last point back to the first; it must be editable too.
+        #expect(session.beginPenLineNodeGesture(at: CGPoint(x: 15, y: 45), tolerance: 2) == 4)
+        session.dragPenLineNode(to: CGPoint(x: 5, y: 45))
+        session.endPenLineNodeGesture()
+
+        let editedLayer = try #require(session.activeLayer)
+        let edited = try #require(editedLayer.liveVectorPath).style
+        #expect(edited.mode == .shape && edited.closed && edited.nodes.count == 5)
+        #expect(abs(try documentAnchors(editedLayer)[4].x - 5) < 0.001)
+        #expect(session.removeSelectedPenNode())
+        #expect(session.activeLayer?.liveVectorPath?.style.nodes.count == 4)
+        session.undo()
+        session.undo()
+        #expect(session.activeLayer?.liveVectorPath?.style == original)
     }
 
     @Test func invalidModeClosureAndCoordinatesAreRejected() {
@@ -98,15 +222,6 @@ struct PenToolTests {
         session.undo()
         #expect(session.penDraft == nil)
         #expect(session.history.undoCount == historyCount)
-    }
-
-    @Test func widthChangedDuringDrawingBelongsToTheNewLine() throws {
-        let session = makeSession()
-        add(CGPoint(x: 10, y: 10), to: session)
-        session.setPenLineWidth(32)
-        add(CGPoint(x: 70, y: 10), to: session)
-        #expect(session.finishPen())
-        #expect(try #require(session.activeLayer?.liveVectorPath).style.lineWidth == 32)
     }
 
     @Test func linePointCanBeInsertedMovedDeletedAndUndone() throws {
@@ -169,18 +284,12 @@ struct PenToolTests {
         #expect(session.activeLayer?.liveVectorPath?.style == original)
     }
 
-    @Test func changingWidthKeepsDocumentAnchorsAndRoundTrips() async throws {
+    @Test func editablePathRoundTripsWithoutMovingAnchors() async throws {
         let session = makeSession()
         add(CGPoint(x: 12, y: 18), to: session)
         add(CGPoint(x: 86, y: 64), to: session)
         #expect(session.finishPen())
-        let before = try documentAnchors(try #require(session.activeLayer))
-        session.setPenLineWidth(24)
-        let after = try documentAnchors(try #require(session.activeLayer))
-        #expect(zip(before, after).allSatisfy { pair in
-            hypot(pair.0.x - pair.1.x, pair.0.y - pair.1.y) < 0.001
-        })
-        #expect(session.activeLayer?.liveVectorPath?.style.lineWidth == 24)
+        let anchors = try documentAnchors(try #require(session.activeLayer))
 
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("CompositorPenTests-\(UUID())")
         defer { try? FileManager.default.removeItem(at: folder) }
@@ -191,7 +300,31 @@ struct PenToolTests {
         let reopened = EditorSession()
         reopened.installProject(loaded, from: url)
         #expect(reopened.activeLayer?.liveVectorPath?.style == session.activeLayer?.liveVectorPath?.style)
-        #expect(try documentAnchors(try #require(reopened.activeLayer)) == after)
+        #expect(try documentAnchors(try #require(reopened.activeLayer)) == anchors)
+    }
+
+    @Test func saveSnapshotMigratesLegacyPaintedPathBacking() throws {
+        let session = makeSession()
+        add(CGPoint(x: 12, y: 18), to: session)
+        add(CGPoint(x: 86, y: 64), to: session)
+        #expect(session.finishPen())
+        let id = try #require(session.activeLayerID)
+        let index = try #require(session.document?.layers.firstIndex(where: { $0.id == id }))
+        let style = try #require(session.activeLayer?.liveVectorPath?.style)
+        let context = try BrushRaster.context(width: 8, height: 8, mask: false)
+        context.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: 8, height: 8))
+        let legacyImage = try #require(context.makeImage())
+        let legacy = ImportedImage(image: legacyImage, thumbnail: try PixelInvert.thumbnail(of: legacyImage), name: "Path")
+        session.document?.layers[index].asset = legacy
+        session.document?.layers[index].vectorPath = LayerVectorPath(style: style, image: legacyImage)
+
+        let snapshot = try #require(session.projectSnapshot())
+        let backing = try #require(snapshot.images[id]?.image)
+        let pixels = try BrushRaster.copy(backing)
+        let bytes = try #require(pixels.data).assumingMemoryBound(to: UInt8.self)
+        #expect(snapshot.manifest.version == 15)
+        #expect(backing.width == 1 && backing.height == 1 && bytes[3] == 0)
     }
 
     @Test func activeShapeLoadsAsASelectionInDocumentCoordinates() throws {
@@ -213,6 +346,8 @@ struct PenToolTests {
         let selection = try #require(session.selection)
         #expect(selection.path.contains(center, using: .winding))
         #expect(!selection.path.contains(CGPoint(x: 5, y: 5), using: .winding))
+        #expect(session.activeLayer?.isVisible == true)
+        #expect(session.activeLayer?.liveVectorPath != nil)
     }
 
     @Test func openPathClosesWhenLoadedAndCanAddToASelection() throws {
@@ -231,7 +366,7 @@ struct PenToolTests {
         #expect(selection.path.contains(CGPoint(x: 95, y: 85), using: .winding))
     }
 
-    @Test func unfinishedPathCanLoadWithoutCommittingALayer() throws {
+    @Test func loadingAnUnfinishedPathCommitsAndPreservesIt() throws {
         let session = makeSession(mode: .shape)
         add(CGPoint(x: 20, y: 15), to: session)
         add(CGPoint(x: 75, y: 15), to: session)
@@ -240,12 +375,16 @@ struct PenToolTests {
         #expect(session.canLoadPenPathSelection)
         session.loadPenPathSelection()
 
-        #expect(session.penDraft?.nodes.count == 3)
-        #expect(session.document?.layers.count == 1)
+        #expect(session.penDraft == nil)
+        #expect(session.document?.layers.count == 2)
+        #expect(session.activeLayer?.liveVectorPath != nil)
         #expect(try #require(session.selection).path.contains(CGPoint(x: 45, y: 30), using: .winding))
+        session.undo()
+        #expect(session.document?.layers.count == 1)
+        #expect(session.selection == nil)
     }
 
-    @Test func commandReturnLoadsTheDraftAsASelectionWithoutFinishingIt() throws {
+    @Test func commandReturnLoadsTheDraftAndKeepsAnEditablePath() throws {
         let session = makeSession(mode: .shape)
         add(CGPoint(x: 20, y: 15), to: session)
         add(CGPoint(x: 75, y: 15), to: session)
@@ -259,8 +398,50 @@ struct PenToolTests {
 
         canvas.keyDown(with: commandReturn)
 
-        #expect(session.penDraft?.nodes.count == 3)
-        #expect(session.document?.layers.count == 1)
+        #expect(session.penDraft == nil)
+        #expect(session.document?.layers.count == 2)
+        #expect(session.activeLayer?.liveVectorPath != nil)
         #expect(try #require(session.selection).path.contains(CGPoint(x: 45, y: 30), using: .winding))
+    }
+
+    @Test func editablePathCannotBeAccidentallyPaintedOver() throws {
+        let session = makeSession()
+        add(CGPoint(x: 10, y: 20), to: session)
+        add(CGPoint(x: 90, y: 70), to: session)
+        #expect(session.finishPen())
+
+        session.selectTool(.brush)
+
+        #expect(!session.canPaint)
+        #expect(session.paintRefusal?.contains("editable path") == true)
+        #expect(session.activeLayer?.liveVectorPath != nil)
+    }
+
+    @Test func draggingAPathPointReusesItsTransparentBacking() throws {
+        let session = makeSession()
+        add(CGPoint(x: 10, y: 20), to: session)
+        add(CGPoint(x: 90, y: 70), to: session)
+        #expect(session.finishPen())
+        let image = try #require(session.activeLayer?.liveVectorPath?.image)
+
+        #expect(session.beginPenLineNodeGesture(at: CGPoint(x: 10, y: 20), tolerance: 2) == 0)
+        session.dragPenLineNode(to: CGPoint(x: 15, y: 25))
+        session.dragPenLineNode(to: CGPoint(x: 20, y: 30))
+        session.endPenLineNodeGesture()
+
+        #expect(session.activeLayer?.liveVectorPath?.image === image)
+    }
+
+    @Test func generatedBrushStrokeRejectsUnboundedDabWork() throws {
+        var settings = BrushSettings()
+        settings.diameter = 1
+        let layer = ImageLayer(name: "Stroke", blankSize: CGSize(width: 10, height: 10))
+        let stroke = try BrushStroke(layer: layer, mask: false, settings: settings,
+                                     canvas: CGSize(width: 10, height: 10), useGPU: false)
+
+        #expect(throws: BrushStrokeError.self) {
+            try stroke.appendPolyline([.zero, CGPoint(x: 1_000_000, y: 0)])
+        }
+        #expect(stroke.patches.isEmpty)
     }
 }

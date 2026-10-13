@@ -1,8 +1,8 @@
-# Compositor project format, versions 1–14
+# Compositor project format, versions 1–15
 
 A `.comp` file is a macOS document package containing `manifest.json` and an `images/` directory of `<layer UUID>.png` assets.
 
-The manifest identifies `com.compositor.project`, version `14` for new saves (versions `1`–`13` remain readable), and the sRGB working space. It stores document UUID, pixel dimensions, active layer UUID, and layers in bottom-to-top order. Each layer stores its UUID, name, visibility, transform (origin, size, clockwise rotation, flips, sampling), and optional image filename. Blank layers have no image asset.
+The manifest identifies `com.compositor.project`, version `15` for new saves (versions `1`–`14` remain readable), and the sRGB working space. It stores document UUID, pixel dimensions, active layer UUID, and layers in bottom-to-top order. Each layer stores its UUID, name, visibility, transform (origin, size, clockwise rotation, flips, sampling), and optional image filename. Blank layers have no image asset.
 
 Embedded PNGs preserve source pixels and transparency; transforms remain separate. Projects survive moving or deleting imported source photos. Saving uses a coordinated atomic package replacement. Unsupported versions, invalid metadata, missing assets, unsafe paths, and oversized data are rejected before replacing the live document.
 
@@ -56,3 +56,5 @@ Version 12 lets a layer's image file be a 16-bit PNG: a 16-bit layer, which keep
 Version 13 lets a layer's image file be OpenEXR, named `<layer UUID>.exr`: an HDR layer, whose pixels hold light brighter than white as half floats in extended sRGB (white is 1). It is shown, and for now edited, through a copy clipped to white and rounded to 8 bits with a fine noise, made again on load. An EXR whose values all stay within white loads as a 16-bit layer. Masks stay 8-bit PNG. Files declaring versions 1–12 cannot contain EXR images, and older app builds reject v13.
 
 Version 14 adds optional `vectorPath` metadata to layers made with the Pen tool. It stores `mode` (`Shape` or `Line`), RGB color, line width, whether the path is closed, and normalized anchor/in/out-handle points. Shapes require at least three points and are closed fills; lines require at least two points and remain open strokes. The layer PNG is still the display fallback. Editing pixels rasterizes the layer and omits stale path metadata from its next save. Files declaring versions 1–13 cannot contain path metadata, and older app builds reject v14.
+
+Version 15 makes Pen layers path-only. Their PNG is a transparent 1×1 identity asset rather than a painted display fallback; fill and brush-stroke commands create separate sibling pixel layers while preserving the editable source path. Saving or exporting a version-14 path normalizes its old fallback pixels to this transparent backing. Pixel-editing tools refuse a live path instead of silently rasterizing it. Version-14 projects remain readable, while older app builds reject v15 rather than hiding or repainting the path incorrectly.

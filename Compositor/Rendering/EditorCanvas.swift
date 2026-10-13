@@ -1070,7 +1070,7 @@ final class CanvasView: NSView {
                     limit: session.transformEdit != nil ? min(2048, steady) : steady)
             }()
             // A stroke or drop shadow is drawn around the layer's pixels, on a canvas grown to hold it.
-            if stroke == nil, layer.asset != nil,
+            if stroke == nil, layer.asset != nil, layer.liveVectorPath == nil,
                let effects = session.effectsPreviews.preview(for: layer, mask: mask, transform: transform,
                     maskPlacement: session.displayedMaskPlacement(for: layer), completion: { [weak self] in
                         self?.needsDisplay = true
@@ -1081,9 +1081,8 @@ final class CanvasView: NSView {
                     opacity: opacity, blendMode: blendMode(of: layer), mask: nil, in: context)
                 return
             }
-            if stroke == nil, let vector = session.vectorPathTransformPreview(for: layer, transform: transform) {
-                LayerRenderer.draw(vector, transform: transform, center: center(transform.center), scale: scale,
-                    opacity: opacity, blendMode: blendMode(of: layer), mask: mask, in: context)
+            if stroke == nil, layer.liveVectorPath != nil {
+                // Editable paths have no pixels; the Pen overlay draws their geometry and controls.
             } else if stroke == nil, let shaped = session.shapeTransformPreview(for: layer, transform: transform) {
                 LayerRenderer.draw(shaped, transform: transform, center: center(transform.center), scale: scale,
                     opacity: opacity, blendMode: blendMode(of: layer), mask: mask, in: context)
@@ -1425,7 +1424,6 @@ final class CanvasView: NSView {
     /// Pen paths and their anchors stay vector-sharp at every zoom and sit above the composited canvas.
     private func drawPenOverlay(in context: CGContext) {
         guard session.tool == .pen, let document = session.document else { return }
-        let scale = session.viewport.pointsPerPixel
         func viewPoint(_ point: CGPoint) -> CGPoint {
             session.viewport.viewPoint(from: point, documentSize: document.size)
         }
@@ -1475,15 +1473,6 @@ final class CanvasView: NSView {
                 let closes = draft.mode == .shape && draft.nodes.count >= 3
                 let path = LayerVectorPathStyle.path(nodes: nodes, closed: closes)
                 context.saveGState()
-                if closes {
-                    context.setFillColor(draft.color.nsColor.withAlphaComponent(0.2).cgColor)
-                    context.addPath(path); context.fillPath()
-                } else {
-                    context.setStrokeColor(draft.color.nsColor.cgColor)
-                    context.setLineWidth(max(1, CGFloat(draft.lineWidth) * scale))
-                    context.setLineCap(.round); context.setLineJoin(.round)
-                    context.addPath(path); context.strokePath()
-                }
                 context.setStrokeColor(NSColor.controlAccentColor.cgColor)
                 context.setLineWidth(1)
                 context.addPath(path); context.strokePath()
@@ -1493,20 +1482,20 @@ final class CanvasView: NSView {
             return
         }
 
-        guard let layer = session.activeLayer, let vectorPath = layer.liveVectorPath,
-              vectorPath.style.mode == .line else { return }
-        let nodes = vectorPath.style.nodes(in: layer.transform.size).map { node in
+        guard let layer = session.activeLayer, let vectorPath = layer.liveVectorPath else { return }
+        let transform = session.displayedTransform(for: layer)
+        let nodes = vectorPath.style.nodes(in: transform.size).map { node in
             func map(_ local: CGPoint) -> CGPoint {
-                let unit = CGPoint(x: local.x / max(layer.transform.size.width, 1),
-                                   y: local.y / max(layer.transform.size.height, 1))
-                return viewPoint(unit.applying(layer.transform.unitToDocument))
+                let unit = CGPoint(x: local.x / max(transform.size.width, 1),
+                                   y: local.y / max(transform.size.height, 1))
+                return viewPoint(unit.applying(transform.unitToDocument))
             }
             return VectorPathNode(anchor: map(node.anchor), inHandle: map(node.inHandle), outHandle: map(node.outHandle))
         }
         context.saveGState()
         context.setStrokeColor(NSColor.controlAccentColor.withAlphaComponent(0.85).cgColor)
         context.setLineWidth(1)
-        context.addPath(LayerVectorPathStyle.path(nodes: nodes, closed: false))
+        context.addPath(LayerVectorPathStyle.path(nodes: nodes, closed: vectorPath.style.closed))
         context.strokePath()
         context.restoreGState()
         drawControls(nodes, selected: session.selectedPenNodeIndex, selectedHandle: session.selectedPenHandle)
@@ -3217,7 +3206,7 @@ extension CanvasView {
                     height: layer.asset?.image.height ?? Int(transform.size.height.rounded()),
                     limit: session.transformEdit != nil ? min(2048, steady) : steady)
             }()
-            if layer.asset != nil,
+            if layer.asset != nil, layer.liveVectorPath == nil,
                let effects = session.effectsPreviews.preview(for: layer, mask: mask, transform: transform,
                     maskPlacement: session.displayedMaskPlacement(for: layer), completion: { [weak self] in
                         self?.needsDisplay = true
@@ -3227,8 +3216,8 @@ extension CanvasView {
                 return GPUBlend.faded(image, opacity)
             }
             let placed: CIImage?
-            if let vector = session.vectorPathTransformPreview(for: layer, transform: transform) {
-                placed = placement.place(vector, transform: transform)
+            if layer.liveVectorPath != nil {
+                placed = nil
             } else if let shaped = session.shapeTransformPreview(for: layer, transform: transform) {
                 placed = placement.place(shaped, transform: transform)
             } else if let asset = layer.asset, session.hueSaturation?.previewImage(for: layer.id) == nil,

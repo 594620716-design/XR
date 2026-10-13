@@ -7,7 +7,14 @@ extension EditorSession {
         var images: [UUID: ImportedImage] = [:]
         var masks: [UUID: ImportedImage] = [:]
         let layers = document.layers.map { layer in
-            if let asset = layer.asset { images[layer.id] = asset }
+            if let asset = layer.asset {
+                if layer.liveVectorPath != nil, let image = PenBacking.image {
+                    images[layer.id] = ImportedImage(image: image,
+                        thumbnail: (try? PixelInvert.thumbnail(of: image)) ?? asset.thumbnail, name: asset.name)
+                } else {
+                    images[layer.id] = asset
+                }
+            }
             if let mask = layer.mask { masks[layer.id] = mask.asset }
             return ProjectLayerRecord(id: layer.id, name: layer.name, isVisible: layer.isVisible,
                 transform: layer.transform, imageFile: layer.asset?.file(for: layer.id), parentID: layer.parentID, isGroup: layer.isGroup, opacity: layer.opacity, blendMode: layer.blendMode, maskFile: layer.mask == nil ? nil : "\(layer.id.uuidString).mask.png", maskEnabled: layer.mask?.isEnabled, maskSourceID: layer.maskSourceID, adjustment: layer.adjustment, maskPlacement: layer.mask?.placement, maskLinked: layer.mask?.isLinked, shape: layer.liveShape?.style, vectorPath: layer.liveVectorPath?.style, effects: layer.effects, text: layer.liveText?.style)

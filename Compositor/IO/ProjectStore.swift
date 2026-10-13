@@ -17,7 +17,7 @@ extension UTType {
 
 nonisolated struct ProjectManifest: Codable, Sendable {
     /// The format version new saves write.
-    static let current = 14
+    static let current = 15
     /// Every version `load` accepts. The package-header check, the manifest check and the error
     /// message all read this, so they cannot drift apart when `current` is bumped.
     static let supported = 1...ProjectManifest.current
@@ -55,7 +55,7 @@ nonisolated struct ProjectLayerRecord: Codable, Sendable {
     var maskLinked: Bool? = nil
     /// A shape layer's shape, drawn again when the layer is scaled. Older versions ignore it and keep the pixels.
     var shape: LayerShapeStyle? = nil
-    /// A Pen layer's editable path. The PNG remains its display fallback.
+    /// A Pen layer's editable path. From version 15 its PNG is only a transparent identity backing.
     var vectorPath: LayerVectorPathStyle? = nil
     /// The stroke and drop shadow drawn around the layer.
     var effects: LayerEffects? = nil
