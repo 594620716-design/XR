@@ -190,6 +190,24 @@ struct PenToolTests {
         #expect(abs(style.blue - 0.9) < 0.001)
     }
 
+    @Test func undoAfterClosingReopensThePathBeforeRemovingPoints() {
+        let session = makeSession()
+        add(CGPoint(x: 15, y: 15), to: session)
+        add(CGPoint(x: 90, y: 20), to: session)
+        add(CGPoint(x: 50, y: 75), to: session)
+        #expect(closePath(session))
+        #expect(session.penDraft == nil)
+        #expect(session.activeLayer?.liveVectorPath?.style.closed == true)
+
+        session.undo()
+
+        #expect(session.document?.layers.compactMap(\.liveVectorPath).isEmpty == true)
+        #expect(session.penDraft?.mode == .line)
+        #expect(session.penDraft?.nodes.count == 3)
+        session.undo()
+        #expect(session.penDraft?.nodes.count == 2)
+    }
+
     @Test func closedShapeCanInsertMoveDeleteAndUndoPoints() throws {
         let session = makeSession()
         add(CGPoint(x: 15, y: 15), to: session)
@@ -281,7 +299,7 @@ struct PenToolTests {
                       anchors[0].y - anchors[anchors.count - 1].y) < 0.001)
     }
 
-    @Test func cutSplitsAnOpenPathIntoTwoEditableLayers() throws {
+    @Test func cutCreatesTwoEditableSubpathsInOneLayer() throws {
         let session = makeSession()
         add(CGPoint(x: 10, y: 20), to: session)
         add(CGPoint(x: 50, y: 50), to: session)
@@ -291,8 +309,10 @@ struct PenToolTests {
 
         #expect(session.cutPenPath(at: CGPoint(x: 30, y: 35), tolerance: 2))
         let paths = try #require(session.document).layers.compactMap(\.liveVectorPath)
-        #expect(paths.count == 2)
-        #expect(paths.allSatisfy { !$0.style.closed && $0.style.nodes.count >= 2 })
+        #expect(paths.count == 1)
+        #expect(paths[0].style.closed == false)
+        #expect(paths[0].style.subpathStarts == [2])
+        #expect(paths[0].style.nodes.count == 5)
     }
 
     @Test func eraseBrushRemovesCoveredPathAndIsUndoable() throws {
@@ -308,11 +328,13 @@ struct PenToolTests {
         session.endPenErase()
 
         let paths = try #require(session.document).layers.filter { $0.liveVectorPath != nil }
-        #expect(paths.count == 2)
-        let anchors = try paths.map(documentAnchors)
-        #expect(anchors.allSatisfy { $0.count == 2 })
-        #expect(abs(anchors[0].last!.x - 40) < 0.1)
-        #expect(abs(anchors[1].first!.x - 60) < 0.1)
+        #expect(paths.count == 1)
+        let path = try #require(paths[0].liveVectorPath)
+        let anchors = try documentAnchors(paths[0])
+        #expect(path.style.subpathStarts == [2])
+        #expect(anchors.count == 4)
+        #expect(abs(anchors[1].x - 40) < 0.1)
+        #expect(abs(anchors[2].x - 60) < 0.1)
         #expect(session.history.undoCount == undoCount + 1)
         session.undo()
         #expect(session.activeLayer?.liveVectorPath?.style == original)
@@ -332,13 +354,100 @@ struct PenToolTests {
         session.endPenErase()
 
         let paths = try #require(session.document).layers.filter { $0.liveVectorPath != nil }
-        #expect(paths.count == 2)
-        let anchors = try paths.map(documentAnchors)
-        #expect(anchors[0].last!.x <= 25.1)
-        #expect(anchors[1].first!.x >= 74.9)
+        #expect(paths.count == 1)
+        let path = try #require(paths[0].liveVectorPath)
+        let anchors = try documentAnchors(paths[0])
+        #expect(path.style.subpathStarts == [2])
+        #expect(anchors[1].x <= 25.1)
+        #expect(anchors[2].x >= 74.9)
         #expect(session.history.undoCount == undoCount + 1)
         session.undo()
         #expect(session.activeLayer?.liveVectorPath?.style == original)
+    }
+
+    @Test func erasingALongSegmentAddsOnlyBoundaryPoints() throws {
+        let session = EditorSession()
+        session.createDocument(width: 30_000, height: 100, emptyLayer: true)
+        session.selectTool(.pen)
+        add(CGPoint(x: 10, y: 50), to: session)
+        add(CGPoint(x: 29_990, y: 50), to: session)
+        #expect(session.finishPen())
+        session.penAction = .erase
+
+        #expect(session.beginPenErase(at: CGPoint(x: 15_000, y: 50), diameter: 1))
+        session.endPenErase()
+
+        #expect(session.activeLayer?.liveVectorPath?.style.nodes.count == 4)
+        #expect(session.activeLayer?.liveVectorPath?.style.subpathStarts == [2])
+    }
+
+    @Test func eraseOnlyChangesTheSelectedPath() throws {
+        let session = makeSession()
+        add(CGPoint(x: 10, y: 50), to: session)
+        add(CGPoint(x: 90, y: 50), to: session)
+        #expect(session.finishPen())
+        let lowerID = try #require(session.activeLayerID)
+        let lowerStyle = try #require(session.activeLayer?.liveVectorPath?.style)
+        add(CGPoint(x: 10, y: 50), to: session)
+        add(CGPoint(x: 90, y: 50), to: session)
+        #expect(session.finishPen())
+        session.penAction = .erase
+
+        #expect(session.beginPenErase(at: CGPoint(x: 50, y: 50), diameter: 20))
+        session.endPenErase()
+
+        let lower = try #require(session.document?.layers.first(where: { $0.id == lowerID }))
+        #expect(lower.liveVectorPath?.style == lowerStyle)
+        #expect(session.activeLayer?.liveVectorPath?.style.subpathStarts == [2])
+        #expect(session.document?.layers.filter { $0.liveVectorPath != nil }.count == 2)
+    }
+
+    @Test func eraseRemovesOnlyTheSweptAreaFromAFilledShape() throws {
+        let session = makeSession()
+        add(CGPoint(x: 15, y: 15), to: session)
+        add(CGPoint(x: 90, y: 15), to: session)
+        add(CGPoint(x: 90, y: 80), to: session)
+        add(CGPoint(x: 15, y: 80), to: session)
+        #expect(closePath(session))
+        session.fillPenPathWithForeground()
+        let original = try #require(session.activeLayer?.liveVectorPath?.style)
+        session.penAction = .erase
+
+        #expect(session.beginPenErase(at: CGPoint(x: 52, y: 48), diameter: 20))
+        session.endPenErase()
+
+        let layer = try #require(session.activeLayer)
+        let style = try #require(layer.liveVectorPath?.style)
+        #expect(style.fill != nil)
+        #expect(style.nodes == original.nodes)
+        #expect(style.eraseStrokes?.count == 1)
+        #expect(try pixel(layer, at: CGPoint(x: 52, y: 48)).alpha == 0)
+        #expect(try pixel(layer, at: CGPoint(x: 25, y: 25)).alpha > 250)
+        session.undo()
+        #expect(session.activeLayer?.liveVectorPath?.style == original)
+        #expect(try pixel(try #require(session.activeLayer), at: CGPoint(x: 52, y: 48)).alpha > 250)
+    }
+
+    @Test func erasedSubpathsRoundTripAsOneLayer() async throws {
+        let session = makeSession()
+        add(CGPoint(x: 10, y: 50), to: session)
+        add(CGPoint(x: 90, y: 50), to: session)
+        #expect(session.finishPen())
+        session.penAction = .erase
+        #expect(session.beginPenErase(at: CGPoint(x: 50, y: 50), diameter: 20))
+        session.endPenErase()
+
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CompositorErasedPathTests-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false)
+        let url = folder.appendingPathComponent("Erased.comp")
+        try await ProjectStore.shared.save(try #require(session.projectSnapshot()), to: url)
+        let loaded = try await ProjectStore.shared.load(from: url)
+
+        #expect(loaded.manifest.version == 17)
+        #expect(loaded.manifest.layers.compactMap(\.vectorPath).count == 1)
+        #expect(loaded.manifest.layers.compactMap(\.vectorPath).first?.subpathStarts == [2])
     }
 
     @Test func invalidModeClosureAndCoordinatesAreRejected() {
@@ -350,8 +459,14 @@ struct PenToolTests {
                                            lineWidth: 4,
                                            nodes: [nodes[0], VectorPathNode(anchor: CGPoint(x: 2, y: 1))],
                                            closed: false)
+        let invalidBreak = LayerVectorPathStyle(
+            mode: .line, red: 0, green: 0, blue: 0, lineWidth: 4,
+            nodes: nodes + [VectorPathNode(anchor: CGPoint(x: 0.5, y: 0.5))],
+            closed: false, subpathStarts: [1]
+        )
         #expect(!openShape.isValid)
         #expect(!outside.isValid)
+        #expect(!invalidBreak.isValid)
     }
 
     @Test func switchingActionCancelsAnUnfinishedPath() {
@@ -362,6 +477,31 @@ struct PenToolTests {
         #expect(session.penAction == .bend)
         #expect(session.penDraft == nil)
         #expect(session.document?.layers.count == 1)
+    }
+
+    @Test func switchingActionCommitsAUsableOpenPath() {
+        let session = makeSession()
+        add(CGPoint(x: 10, y: 10), to: session)
+        add(CGPoint(x: 60, y: 40), to: session)
+
+        session.cyclePenAction()
+
+        #expect(session.penAction == .bend)
+        #expect(session.penDraft == nil)
+        #expect(session.activeLayer?.liveVectorPath?.style.nodes.count == 2)
+        #expect(session.activeLayer?.liveVectorPath?.style.closed == false)
+    }
+
+    @Test func switchingToolsDoesNotDiscardAUsableOpenPath() {
+        let session = makeSession()
+        add(CGPoint(x: 10, y: 10), to: session)
+        add(CGPoint(x: 60, y: 40), to: session)
+
+        session.selectTool(.move)
+
+        #expect(session.penDraft == nil)
+        #expect(session.activeLayer?.liveVectorPath?.style.nodes.count == 2)
+        #expect(session.tool == .move)
     }
 
     @Test func commandUndoRemovesUnfinishedPointsBeforeDocumentHistory() {
@@ -472,7 +612,7 @@ struct PenToolTests {
 
         let snapshot = try #require(session.projectSnapshot())
         let backing = try #require(snapshot.images[id]?.image)
-        #expect(snapshot.manifest.version == 16)
+        #expect(snapshot.manifest.version == 17)
         #expect(snapshot.manifest.layers.first(where: { $0.id == id })?.vectorPath?.fill != nil)
         #expect(backing.width > 1 && backing.height > 1)
     }

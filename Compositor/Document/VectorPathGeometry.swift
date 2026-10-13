@@ -167,7 +167,8 @@ extension EditorSession {
     /// scale, rotation and flips, so glyph layout always works in document coordinates.
     func textPathGeometry(for layerID: UUID) -> VectorPathGeometry? {
         guard let layer = document?.layers.first(where: { $0.id == layerID }),
-              let vectorPath = layer.liveVectorPath else { return nil }
+              let vectorPath = layer.liveVectorPath,
+              vectorPath.style.subpathStarts?.isEmpty != false else { return nil }
         let nodes = vectorPath.style.nodes.map { node in
             VectorPathNode(
                 anchor: node.anchor.applying(layer.transform.unitToDocument),

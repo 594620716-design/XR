@@ -7,15 +7,14 @@ struct PenControls: View {
         HStack(spacing: 12) {
             Text("Pen").font(ToolHeaderStyle.titleFont)
             Picker("Action", selection: Binding(get: { session.penAction }, set: { action in
-                if action != .draw { session.cancelPen() }
-                session.penAction = action
+                session.selectPenAction(action)
             })) {
                 ForEach(PenAction.allCases, id: \.self) { action in
                     Text(action.rawValue).tag(action)
                 }
             }
             .pickerStyle(.segmented).labelsHidden().fixedSize()
-            .help("Draw creates paths; Bend curves a segment; Cut breaks a path; Erase brushes path sections away. Tab switches tools")
+            .help("Draw creates paths; Bend curves a segment; X cuts; Shift-E erases. Tab switches tools")
 
             if session.penAction == .erase {
                 Text("Size").scrubbable(sensitivity: 1, value: $session.brushSettings.diameter, range: 1...2000)

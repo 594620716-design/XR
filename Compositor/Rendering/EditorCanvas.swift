@@ -1474,7 +1474,8 @@ final class CanvasView: NSView {
             }
             if nodes.count >= 2 {
                 let closes = draft.mode == .shape && draft.nodes.count >= 3
-                let path = LayerVectorPathStyle.path(nodes: nodes, closed: closes)
+                let path = LayerVectorPathStyle.path(nodes: nodes, closed: closes,
+                                                     subpathStarts: draft.subpathStarts)
                 context.saveGState()
                 context.setStrokeColor(NSColor.controlAccentColor.cgColor)
                 context.setLineWidth(1)
@@ -1495,10 +1496,63 @@ final class CanvasView: NSView {
             }
             return VectorPathNode(anchor: map(node.anchor), inHandle: map(node.inHandle), outHandle: map(node.outHandle))
         }
+        let path = LayerVectorPathStyle.path(nodes: nodes, closed: vectorPath.style.closed,
+                                             subpathStarts: vectorPath.style.subpathStarts)
+        if session.penEraseGesture?.changed == true {
+            context.saveGState()
+            context.beginTransparencyLayer(auxiliaryInfo: nil)
+            if let fill = vectorPath.style.fill {
+                let fillPath = LayerVectorPathStyle.path(nodes: nodes, closed: true,
+                                                         subpathStarts: vectorPath.style.subpathStarts)
+                context.setFillColor(NSColor(calibratedRed: CGFloat(fill.red), green: CGFloat(fill.green),
+                                             blue: CGFloat(fill.blue), alpha: 1).cgColor)
+                context.addPath(fillPath)
+                context.fillPath(using: .winding)
+            }
+            if let stroke = vectorPath.style.brushStroke {
+                context.setStrokeColor(NSColor(
+                    calibratedRed: CGFloat(stroke.red), green: CGFloat(stroke.green), blue: CGFloat(stroke.blue),
+                    alpha: CGFloat(stroke.opacity)
+                ).cgColor)
+                context.setLineWidth(max(1, CGFloat(stroke.diameter) * session.viewport.pointsPerPixel))
+                context.setLineCap(.round)
+                context.setLineJoin(.round)
+                context.addPath(path)
+                context.strokePath()
+            }
+            for erase in vectorPath.style.eraseStrokes ?? [] {
+                guard let first = erase.points.first else { continue }
+                let points = erase.points.map { unit in
+                    viewPoint(unit.applying(transform.unitToDocument))
+                }
+                let diameter = (CGFloat(erase.diameterX) * transform.size.width
+                    + CGFloat(erase.diameterY) * transform.size.height) / 2
+                    * session.viewport.pointsPerPixel
+                context.saveGState()
+                context.setBlendMode(.clear)
+                if points.count == 1 {
+                    context.fillEllipse(in: CGRect(x: points[0].x - diameter / 2,
+                                                   y: points[0].y - diameter / 2,
+                                                   width: diameter, height: diameter))
+                } else {
+                    let erasePath = CGMutablePath()
+                    erasePath.move(to: viewPoint(first.applying(transform.unitToDocument)))
+                    for point in points.dropFirst() { erasePath.addLine(to: point) }
+                    context.setLineWidth(diameter)
+                    context.setLineCap(.round)
+                    context.setLineJoin(.round)
+                    context.addPath(erasePath)
+                    context.strokePath()
+                }
+                context.restoreGState()
+            }
+            context.endTransparencyLayer()
+            context.restoreGState()
+        }
         context.saveGState()
         context.setStrokeColor(NSColor.controlAccentColor.withAlphaComponent(0.85).cgColor)
         context.setLineWidth(1)
-        context.addPath(LayerVectorPathStyle.path(nodes: nodes, closed: vectorPath.style.closed))
+        context.addPath(path)
         context.strokePath()
         context.restoreGState()
         drawControls(nodes, selected: session.selectedPenNodeIndex, selectedHandle: session.selectedPenHandle)
@@ -2375,6 +2429,30 @@ final class CanvasView: NSView {
             synchronizeDisplay()
             return
         }
+        if session.tool == .pen, session.penDraft == nil, event.keyCode == 53,
+           session.penAction != .draw {
+            session.penAction = .draw
+            updateBrushCursor()
+            window?.invalidateCursorRects(for: self)
+            return
+        }
+        if event.charactersIgnoringModifiers?.lowercased() == "e",
+           event.modifierFlags.intersection([.command, .control, .option, .shift]) == .shift,
+           session.activeLayer?.liveVectorPath != nil {
+            session.selectTool(.pen)
+            session.selectPenAction(.erase)
+            updateBrushCursor()
+            window?.invalidateCursorRects(for: self)
+            return
+        }
+        if session.tool == .pen,
+           event.charactersIgnoringModifiers?.lowercased() == "x",
+           event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty {
+            session.selectPenAction(.cut)
+            updateBrushCursor()
+            window?.invalidateCursorRects(for: self)
+            return
+        }
         if session.lassoDraft != nil, [53, 36, 76, 51, 117].contains(event.keyCode) {
             if event.keyCode == 53 { session.cancelLasso() }
             else if [36, 76].contains(event.keyCode) { session.finishLasso() }
@@ -2460,7 +2538,7 @@ final class CanvasView: NSView {
             case "u":
                 if event.modifierFlags.contains(.shift), session.tool == .shape { session.toggleShapeKind() }
                 else { session.selectTool(.shape) }
-            case "p": session.selectTool(.pen)
+            case "p": session.selectTool(.pen); session.selectPenAction(.draw)
             case "i": session.selectTool(.eyedropper)
             // M chooses the Marquee in whichever shape it was last set to; the shape is switched in the tool
             // bar. Ignoring a repeat keeps holding the key from doing anything odd.

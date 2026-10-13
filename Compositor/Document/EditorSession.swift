@@ -248,6 +248,7 @@ final class EditorSession {
     var penDraft: PenDraft? { didSet { if oldValue != nil && penDraft == nil { resumeFileRequests() } } }
     var selectedPenNodeIndex: Int?
     var selectedPenHandle: PenHandle?
+    @ObservationIgnored var penClosureUndo: PenClosureUndo?
     @ObservationIgnored var penLineGestureActive = false
     @ObservationIgnored var penLineGestureHandle: PenHandle?
     @ObservationIgnored var penBendGesture: PenBendGesture?
@@ -397,6 +398,7 @@ final class EditorSession {
     }
     func selectLayer(_ id: UUID?) {
         effectSelection = nil
+        if id != activeLayerID, penDraft != nil { resolvePenDraft() }
         if id != activeLayerID, !finishText() { return }
         guard brushStroke == nil, warpStroke == nil, levels == nil else { return }
         if id != activeLayerID { commitTransform(); resolveGradient() }
@@ -406,6 +408,7 @@ final class EditorSession {
     func selectTool(_ value: NavigationTool) {
         if tool != value, !finishText() { return }
         guard !isProjectBusy, brushStroke == nil, warpStroke == nil, levels == nil else { return }
+        if tool == .pen, value != .pen { resolvePenDraft() }
         if tool != value { commitTransform(); cancelCrop(); resolveGradient(); cancelLasso(); cancelShape(); cancelPen() }
         let from = Self.tipFamily(tool), to = Self.tipFamily(value)
         if from != to, let parked = parkedBrushTips[to] {
@@ -675,12 +678,29 @@ final class EditorSession {
     }
     var canRedo: Bool { canUseHistory && history.canRedo }
 
+    var canUndoPenClosure: Bool {
+        guard tool == .pen, penDraft == nil, history.undoName == "Path",
+              let closure = penClosureUndo, activeLayerID == closure.layerID,
+              activeLayer?.liveVectorPath?.style.closed == true
+        else { return false }
+        return true
+    }
+
     func undo() {
         // Like Photoshop, the first Undo discards a pending gradient.
         if gradientEdit != nil { cancelGradient(); return }
         // An unfinished Pen path is not in document history yet. Undo its newest point before touching the
         // last committed document edit, so Command-Z remains useful throughout drawing.
         if penDraft != nil { removeLastPenAnchor(); return }
+        // Closing a path commits it as a layer. Restore the open draft first so closing is its own undoable step,
+        // rather than making the first Command-Z discard the entire path.
+        if canUndoPenClosure, let closure = penClosureUndo, let snapshot = history.undo() {
+            penClosureUndo = nil
+            restore(snapshot)
+            penDraft = closure.draft
+            penAction = .draw
+            return
+        }
         guard canUndo, let snapshot = history.undo() else { return }
         restore(snapshot)
     }
