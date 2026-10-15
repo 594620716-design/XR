@@ -3,20 +3,20 @@
   <channel>
     <title>Compositor</title>
     <item>
-      <title>Version 1.5.1</title>
-      <pubDate>Mon, 12 Oct 2026 23:16:19 +0000</pubDate>
-      <sparkle:version>47</sparkle:version>
-      <sparkle:shortVersionString>1.5.1</sparkle:shortVersionString>
+      <title>Version 1.5.3</title>
+      <pubDate>Thu, 15 Oct 2026 01:43:32 +0000</pubDate>
+      <sparkle:version>49</sparkle:version>
+      <sparkle:shortVersionString>1.5.3</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
-      <link>https://github.com/robbietilton/Compositor/releases/tag/v1.5.1</link>
-      <changes><![CDATA[New Filter › Progressive Blur: drag two points on the canvas
-Adjustment layers over 16-bit layers now preview at full precision
-Smoother display of 16-bit and HDR layers
-16-bit layers: 16-bit PNG, TIFF, HEIF and RAW keep full precision
-Convert layers between 8-bit and 16-bit from the right-click menu
-HDR: open EXR and .hdr images, and export EXR
-CMYK: proof colors and gamut warning in View › CMYK]]></changes>
-      <enclosure url="https://github.com/robbietilton/Compositor/releases/download/v1.5.1/Compositor.dmg" sparkle:edSignature="8C909yIzWrP19zkUcys06BwSb69NT0aUcOgHHSy7NEh/ZHkA7HY1ITsXnSc6apo6CQ94U27FdfgB30ah9K5bBg==" length="8161408" type="application/octet-stream"/>
+      <link>https://github.com/robbietilton/Compositor/releases/tag/v1.5.3</link>
+      <changes><![CDATA[Faster Camera Raw previews on large images with GPU acceleration, preserving existing adjustment results.
+Camera Raw previews stay at full resolution while dragging sliders.
+Faster histogram and scope updates.
+New Smooth Corners option for rectangles, with iOS-style rounded corners.
+Cleaner shape controls, with the fill swatch first in all three shape modes.
+Scroll the Layers panel by dragging with the middle mouse button.
+Zoom cursors update immediately when changing drag direction.]]></changes>
+      <enclosure url="https://github.com/robbietilton/Compositor/releases/download/v1.5.3/Compositor.dmg" sparkle:edSignature="EHmfmMu/Hh6FYSoa1y1nnd7gCgDLQp42NxsQZ6OUXl40VQ6/oNaLPwrOF/xhYDsz3Ed/TTcIK8Irnc8DT0J0AA==" length="8239279" type="application/octet-stream"/>
     </item>
   </channel>
 </rss>

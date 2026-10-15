@@ -222,6 +222,9 @@ actor ProjectStore {
         guard (1...DocumentLimits.maxSide).contains(manifest.width), (1...DocumentLimits.maxSide).contains(manifest.height),
               manifest.layers.count <= 10_000 else { throw ProjectError.tooLarge }
         for layer in manifest.layers {
+            if layer.shape?.smoothing == true {
+                guard manifest.version >= 14 else { throw ProjectError.invalid }
+            }
             if let vectorPath = layer.vectorPath {
                 guard manifest.version >= 14, vectorPath.isValid,
                       layer.imageFile == "\(layer.id.uuidString).png", layer.isGroup != true, layer.adjustment == nil,
