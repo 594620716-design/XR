@@ -734,4 +734,96 @@ struct PenToolTests {
         }
         #expect(stroke.patches.isEmpty)
     }
+
+    @Test func erasingAWholePathClearsLiveMasksThatUsedIt() throws {
+        let session = makeSession()
+        let pixelLayerID = try #require(session.activeLayerID)
+        add(CGPoint(x: 40, y: 50), to: session)
+        add(CGPoint(x: 60, y: 50), to: session)
+        #expect(session.finishPen())
+        let pathID = try #require(session.activeLayerID)
+        let index = try #require(session.document?.layers.firstIndex { $0.id == pixelLayerID })
+        session.document?.layers[index].maskSourceID = pathID
+        session.penAction = .erase
+
+        #expect(session.beginPenErase(at: CGPoint(x: 50, y: 50), diameter: 60))
+        session.endPenErase()
+
+        let layers = try #require(session.document).layers
+        #expect(!layers.contains { $0.id == pathID })
+        #expect(layers.allSatisfy { $0.maskSourceID == nil })
+        #expect((try? LiveMaskGraph.validate(layers.map(\.hierarchyRecord))) != nil)
+    }
+
+    @Test func selectingAPointWithoutDraggingAddsNoUndoStep() throws {
+        let session = makeSession()
+        add(CGPoint(x: 20, y: 20), to: session)
+        add(CGPoint(x: 80, y: 20), to: session)
+        add(CGPoint(x: 50, y: 70), to: session)
+        #expect(closePath(session))
+        session.fillPenPathWithForeground()
+        let undoCount = session.history.undoCount
+        let image = try #require(session.activeLayer?.liveVectorPath?.image)
+
+        #expect(session.beginPenLineNodeGesture(at: CGPoint(x: 80, y: 20), tolerance: 2) == 1)
+        session.endPenLineNodeGesture()
+
+        #expect(session.history.undoCount == undoCount)
+        #expect(session.activeLayer?.liveVectorPath?.image === image)
+        #expect(session.selectedPenNodeIndex == 1)
+    }
+
+    @Test func strokedPathWithCoincidingPointsStillRenders() throws {
+        let session = makeSession()
+        add(CGPoint(x: 10, y: 50), to: session)
+        add(CGPoint(x: 90, y: 50), to: session)
+        #expect(session.finishPen())
+        session.brushSettings.diameter = 8
+        session.strokePenPathWithBrush()
+
+        #expect(session.beginPenLineNodeGesture(at: CGPoint(x: 90, y: 50), tolerance: 2) == 1)
+        session.dragPenLineNode(to: CGPoint(x: 10, y: 50))
+        session.endPenLineNodeGesture()
+
+        #expect(session.brushError == nil)
+        let anchors = try documentAnchors(try #require(session.activeLayer))
+        #expect(abs(anchors[1].x - 10) < 0.01 && abs(anchors[1].y - 50) < 0.01)
+    }
+
+    @Test func deleteWithAPointSelectedNeverDeletesThePathLayer() throws {
+        let session = makeSession()
+        add(CGPoint(x: 10, y: 20), to: session)
+        add(CGPoint(x: 90, y: 70), to: session)
+        #expect(session.finishPen())
+        #expect(session.beginPenLineNodeGesture(at: CGPoint(x: 10, y: 20), tolerance: 2) == 0)
+        session.endPenLineNodeGesture()
+        let canvas = CanvasView(session: session)
+        let delete = try #require(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+            windowNumber: 0, context: nil, characters: "\u{7F}", charactersIgnoringModifiers: "\u{7F}",
+            isARepeat: false, keyCode: 51
+        ))
+
+        canvas.keyDown(with: delete)
+
+        #expect(session.document?.layers.count == 2)
+        #expect(session.activeLayer?.liveVectorPath?.style.nodes.count == 2)
+    }
+
+    @Test func shiftMovingAPointSnapsFromWhereItStarted() throws {
+        let session = makeSession()
+        add(CGPoint(x: 10, y: 20), to: session)
+        add(CGPoint(x: 90, y: 70), to: session)
+        #expect(session.finishPen())
+
+        #expect(session.beginPenLineNodeGesture(at: CGPoint(x: 10, y: 20), tolerance: 2) == 0)
+        session.dragPenLineNode(to: CGPoint(x: 30, y: 28), constrain: true)
+        session.dragPenLineNode(to: CGPoint(x: 32, y: 40), constrain: true)
+        session.endPenLineNodeGesture()
+
+        // 45° from the press at (10, 20), not 90° from where the first drag event left the point.
+        let anchors = try documentAnchors(try #require(session.activeLayer))
+        #expect(abs((anchors[0].x - 10) - (anchors[0].y - 20)) < 0.1)
+        #expect(anchors[0].y > 35)
+    }
 }

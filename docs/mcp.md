@@ -103,6 +103,8 @@ The result is an ordinary editable Pen layer with a transparent identity PNG. Fi
 commands in the GUI, so creating or editing a path never changes pixels. The MCP server writes the backing first and then
 atomically replaces `manifest.json`, so Compositor never loads a half-written path. Calls reject malformed projects,
 unsupported future format versions, non-finite coordinates, excessive nodes and unsafe deletion of live-mask sources.
+A path that has a fill, a brush stroke, erasing or separate pieces (added in Compositor) can be renamed or shown/hidden
+through MCP, but changing its shape, mode, color or width is refused, since rewriting it would drop that work.
 
 ## Text-on-path hand-off
 

@@ -64,6 +64,8 @@ final class CanvasView: NSView {
     private var lastDragPoint: CGPoint?
     /// The anchor of an existing Pen line being moved; a segment click inserts one first.
     private var penNodeDrag: Int?
+    /// Set when a click closed or finished a path, so the rest of that double-click doesn't edit the new layer.
+    private var penIgnoresDoubleClick = false
     /// Where a middle-button pan last was (see otherMouseDown).
     private var middlePanPoint: CGPoint?
     /// A middle-button zoom with Command or Control held: where it started, and the zoom then.
@@ -1647,7 +1649,7 @@ final class CanvasView: NSView {
         // only tools whose cursor depends on where the pointer is also track movement.
         // The picker panel stays key, so sampling must track while this window is not.
         var options: NSTrackingArea.Options = [.mouseEnteredAndExited, picking ? .activeAlways : .activeInKeyWindow, .inVisibleRect]
-        if picking || session.tool == .move || usesBrushCursor || session.tool.isSelectionTool {
+        if picking || session.tool == .move || usesBrushCursor || session.tool.isSelectionTool || session.tool == .pen {
             options.formUnion([.mouseMoved, .cursorUpdate])
         }
         let area = NSTrackingArea(rect: .zero, options: options, owner: self)
@@ -2005,8 +2007,11 @@ final class CanvasView: NSView {
                                                  flags: event.modifierFlags))
         } else if session.tool == .pen, let document = session.document {
             let pixel = session.viewport.documentPoint(from: point, documentSize: document.size)
+            // The second click of a double-click that closed the path would otherwise smooth its first point.
+            if event.clickCount >= 2, penIgnoresDoubleClick { return }
+            penIgnoresDoubleClick = false
             if session.penDraft != nil, event.clickCount >= 2 {
-                session.finishPen()
+                penIgnoresDoubleClick = session.finishPen()
                 lines.needsDisplay = true
                 return
             }
@@ -2023,8 +2028,8 @@ final class CanvasView: NSView {
                    let index = session.beginPenLineNodeGesture(at: pixel, tolerance: tolerance) {
                     penNodeDrag = index
                 } else {
-                    _ = session.beginPenAnchor(at: pixel, closeDistance: tolerance,
-                                               constrain: event.modifierFlags.contains(.shift))
+                    penIgnoresDoubleClick = session.beginPenAnchor(at: pixel, closeDistance: tolerance,
+                                                                   constrain: event.modifierFlags.contains(.shift))
                 }
             case .bend:
                 _ = session.beginPenBendGesture(at: pixel, tolerance: tolerance)
@@ -2467,7 +2472,10 @@ final class CanvasView: NSView {
             synchronizeDisplay()
         } else if session.tool == .pen, [51, 117].contains(event.keyCode),
                   event.modifierFlags.intersection([.command, .control, .option]).isEmpty,
-                  session.removeSelectedPenNode() {
+                  session.selectedPenNodeIndex != nil, session.activeLayer?.liveVectorPath != nil {
+            // With a point selected, Delete only ever removes that point. A path at its minimum number of points
+            // beeps instead of falling through to Delete Layer or Clear.
+            if !session.removeSelectedPenNode() { NSSound.beep() }
             lines.needsDisplay = true
             synchronizeDisplay()
         } else if session.shapeDraft != nil, event.keyCode == 53 {

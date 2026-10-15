@@ -130,4 +130,32 @@ final class PenProjectEditorTests: XCTestCase {
         )))
         XCTAssertTrue(try editor.listPaths(in: projectURL).isEmpty)
     }
+
+    func testRenamingKeepsAPaintedPathAndShapeEditsAreRefused() throws {
+        let editor = PenProjectEditor()
+        let line = try editor.createPath(in: projectURL, request: CreatePenPathRequest(
+            mode: .line,
+            color: PenColor(red: 0, green: 0, blue: 0),
+            nodes: [PenPathNode(anchor: PenPoint(x: 10, y: 10)), PenPathNode(anchor: PenPoint(x: 100, y: 40))]
+        ))
+        let manifestURL = projectURL.appendingPathComponent("manifest.json")
+        func manifest() throws -> [String: Any] {
+            try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: manifestURL)) as? [String: Any])
+        }
+        var written = try manifest()
+        XCTAssertEqual((written["version"] as? NSNumber)?.intValue, PenProjectEditor.currentProjectVersion)
+        var layers = try XCTUnwrap(written["layers"] as? [[String: Any]])
+        var style = try XCTUnwrap(layers[0]["vectorPath"] as? [String: Any])
+        style["brushStroke"] = ["red": 0, "green": 0, "blue": 0, "diameter": 8, "hardness": 1, "opacity": 1]
+        layers[0]["vectorPath"] = style
+        written["layers"] = layers
+        try JSONSerialization.data(withJSONObject: written).write(to: manifestURL)
+
+        let renamed = try editor.updatePath(in: projectURL, id: line.id, request: UpdatePenPathRequest(name: "Renamed"))
+        XCTAssertEqual(renamed.name, "Renamed")
+        let kept = try XCTUnwrap((try manifest()["layers"] as? [[String: Any]])?.first?["vectorPath"] as? [String: Any])
+        XCTAssertNotNil(kept["brushStroke"])
+        XCTAssertThrowsError(try editor.updatePath(in: projectURL, id: line.id,
+                                                   request: UpdatePenPathRequest(lineWidth: 20)))
+    }
 }

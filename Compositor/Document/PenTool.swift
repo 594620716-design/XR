@@ -20,7 +20,7 @@ nonisolated enum PenAction: String, CaseIterable, Sendable {
         case .bend:
             "Drag a path segment to bend it · ⌘Z undo · Tab changes path tool"
         case .cut:
-            "Click a path segment to cut it · Closed paths open; open paths split into two layers · ⌘Z undo"
+            "Click a path segment to cut it · Closed paths open; open paths split into separate pieces · ⌘Z undo"
         case .erase:
             "Drag the circular eraser across the selected path · [ ] size · Right-drag size · Escape returns to Draw · ⌘Z undo"
         }
@@ -244,8 +244,8 @@ extension EditorSession {
     /// Leaving Draw keeps a usable open path instead of silently losing it. A lone point cannot form a path.
     func resolvePenDraft() {
         guard let draft = penDraft else { return }
-        if draft.nodes.count >= (draft.mode == .shape ? 3 : 2) { _ = finishPen() }
-        else { cancelPen() }
+        // A path that cannot be committed (too large for a layer) is dropped rather than left blocking the session.
+        if draft.nodes.count < (draft.mode == .shape ? 3 : 2) || !finishPen() { cancelPen() }
     }
 
     /// Converts the path being drawn, or the active vector path, to a selection without filling pixels.
@@ -316,7 +316,11 @@ extension EditorSession {
             openDraft.hoverPoint = nil
             draft.mode = .shape
             penDraft = draft
-            guard finishPen(), let layerID = activeLayerID else { return false }
+            guard finishPen(), let layerID = activeLayerID else {
+                // Closing was refused (for example, the path is too large). Keep drawing the open path.
+                if penDraft != nil { penDraft = openDraft }
+                return false
+            }
             penClosureUndo = PenClosureUndo(layerID: layerID, draft: openDraft)
             return true
         }
@@ -407,19 +411,22 @@ extension EditorSession {
 
     func beginPenLineNodeGesture(at point: CGPoint, tolerance: CGFloat) -> Int? {
         guard tool == .pen, canEditLayers, penDraft == nil else { return nil }
+        penLineGestureOrigin = nil
+        penLineGestureChanged = false
+        let paths = editablePenPaths()
 
-        for (layer, vectorPath, documentNodes) in editablePenPaths() {
-            if let hit = nearestPenHandle(to: point, in: documentNodes, tolerance: tolerance) {
-                selectLayer(layer.id)
-                guard activeLayerID == layer.id else { return nil }
-                selectedPenNodeIndex = hit.nodeIndex
-                selectedPenHandle = hit.handle
-                penLineGestureHandle = hit.handle
-                beginEdit("Move Path Handle")
-                penLineGestureActive = true
-                return hit.nodeIndex
-            }
+        // Handles are drawn only for the active path, so hidden handles of other paths never capture a click.
+        if let active = paths.first(where: { $0.0.id == activeLayerID }),
+           let hit = nearestPenHandle(to: point, in: active.2, tolerance: tolerance) {
+            selectedPenNodeIndex = hit.nodeIndex
+            selectedPenHandle = hit.handle
+            penLineGestureHandle = hit.handle
+            beginEdit("Move Path Handle")
+            penLineGestureActive = true
+            return hit.nodeIndex
+        }
 
+        for (layer, vectorPath, documentNodes) in paths {
             if let nodeIndex = nearestPenNode(to: point, in: documentNodes, tolerance: tolerance) {
                 selectLayer(layer.id)
                 guard activeLayerID == layer.id else { return nil }
@@ -450,6 +457,7 @@ extension EditorSession {
                 selectedPenNodeIndex = split.insertedIndex
                 selectedPenHandle = nil
                 replaceActivePenPath(with: proposed, preview: true)
+                penLineGestureChanged = true
                 return selectedPenNodeIndex
             }
         }
@@ -523,6 +531,7 @@ extension EditorSession {
             beginEdit("Bend Path")
             penLineGestureActive = true
             penLineGestureHandle = nil
+            penLineGestureChanged = false
             penBendGesture = PenBendGesture(segmentIndex: hit.segmentIndex,
                                             t: min(0.95, max(0.05, hit.t)), lastPoint: point)
             selectedPenNodeIndex = nil
@@ -558,6 +567,7 @@ extension EditorSession {
             x: incoming.x + shift.width, y: incoming.y + shift.height
         ).applying(inverse)
         replaceActivePenPath(with: proposed, preview: true)
+        penLineGestureChanged = true
         gesture.lastPoint = point
         penBendGesture = gesture
     }
@@ -577,6 +587,16 @@ extension EditorSession {
                                         segmentIndex: hit.segmentIndex, t: hit.t,
                                         closed: vectorPath.style.closed)
             var proposed = vectorPath.style
+
+            if !vectorPath.style.closed,
+               let range = penSubpathRanges(nodeCount: vectorPath.style.nodes.count,
+                                            starts: vectorPath.style.subpathStarts ?? [])
+                .first(where: { $0.contains(hit.segmentIndex) }),
+               (hit.segmentIndex == range.lowerBound && hit.t <= 0.001) ||
+                (hit.segmentIndex == range.upperBound - 2 && hit.t >= 0.999) {
+                // Cutting at an open end removes nothing and would leave a zero-length piece.
+                return false
+            }
 
             if vectorPath.style.closed {
                 let cut = split.nodes[split.insertedIndex]
@@ -654,7 +674,10 @@ extension EditorSession {
         let transform = layer.transform.unitToDocument
         let inverse = transform.inverted()
         let anchor = vectorPath.style.nodes[index].anchor.applying(transform)
-        let target = constrain ? constrainedPenPoint(documentPoint, from: anchor) : documentPoint
+        if penLineGestureOrigin == nil { penLineGestureOrigin = anchor }
+        // A handle snaps around its anchor; a moved point snaps around where the drag started.
+        let origin = penLineGestureHandle == nil ? (penLineGestureOrigin ?? anchor) : anchor
+        let target = constrain ? constrainedPenPoint(documentPoint, from: origin) : documentPoint
         let unit = target.applying(inverse)
         guard unit.x.isFinite, unit.y.isFinite else { return }
         var proposed = vectorPath.style
@@ -686,6 +709,7 @@ extension EditorSession {
                 }
             }
             replaceActivePenPath(with: proposed, preview: true)
+            penLineGestureChanged = true
             return
         }
 
@@ -700,17 +724,21 @@ extension EditorSession {
         proposed.nodes[index].outHandle.x += delta.x
         proposed.nodes[index].outHandle.y += delta.y
         replaceActivePenPath(with: proposed, preview: true)
+        penLineGestureChanged = true
     }
 
     func endPenLineNodeGesture() {
         guard penLineGestureActive else { return }
         penLineGestureActive = false
         penLineGestureHandle = nil
+        penLineGestureOrigin = nil
         penBendGesture = nil
-        if let id = activeLayerID,
+        // Only a gesture that changed the path re-renders it, so clicking a point to select it adds no undo step.
+        if penLineGestureChanged, let id = activeLayerID,
            let index = document?.layers.firstIndex(where: { $0.id == id }) {
             redrawVectorPath(at: index)
         }
+        penLineGestureChanged = false
         endEdit()
     }
 
@@ -737,16 +765,12 @@ extension EditorSession {
         return true
     }
 
+    /// Renders the path at full resolution and re-fits the layer around it. Re-fitting keeps a brush stroke's padding
+    /// in document pixels after the layer is scaled, so a scaled-down stroke is not clipped at the layer's edge.
     func redrawVectorPath(at index: Int) {
-        guard let document,
-              document.layers.indices.contains(index),
-              let vectorPath = document.layers[index].liveVectorPath,
-              let asset = document.layers[index].asset,
-              let image = vectorPathImage(style: vectorPath.style, size: document.layers[index].transform.size),
-              let thumbnail = try? PixelInvert.thumbnail(of: image)
-        else { return }
-        self.document?.layers[index].asset = ImportedImage(image: image, thumbnail: thumbnail, name: asset.name)
-        self.document?.layers[index].vectorPath?.image = image
+        guard let document, document.layers.indices.contains(index),
+              let style = document.layers[index].liveVectorPath?.style else { return }
+        replacePenPath(at: index, with: style, preview: false, reportsErrors: false)
     }
 
     func vectorPathTransformPreview(for layer: ImageLayer, transform: LayerTransform) -> CGImage? {
@@ -767,8 +791,14 @@ extension EditorSession {
 
     private func replaceActivePenPath(with proposed: LayerVectorPathStyle, preview: Bool) {
         guard let id = activeLayerID,
-              let document,
-              let index = document.layers.firstIndex(where: { $0.id == id }),
+              let index = document?.layers.firstIndex(where: { $0.id == id })
+        else { return }
+        replacePenPath(at: index, with: proposed, preview: preview, reportsErrors: true)
+    }
+
+    private func replacePenPath(at index: Int, with proposed: LayerVectorPathStyle, preview: Bool,
+                                reportsErrors: Bool) {
+        guard let document,
               document.layers.indices.contains(index),
               document.layers[index].liveVectorPath != nil,
               let oldAsset = document.layers[index].asset
@@ -802,13 +832,13 @@ extension EditorSession {
             $0 + (document.layers[$1].asset.map { $0.image.width * $0.image.height } ?? 0)
         }
         guard used + pixelCount <= DocumentLimits.documentPixelBudget else {
-            brushError = ProjectError.tooLarge.localizedDescription
+            if reportsErrors { brushError = ProjectError.tooLarge.localizedDescription }
             return
         }
         let scale = preview && painted ? min(1, 2_048 / max(max(fullSize.width, fullSize.height), 1)) : 1
         let imageSize = CGSize(width: max(1, fullSize.width * scale), height: max(1, fullSize.height * scale))
         guard let image = vectorPathImage(style: committed.style, size: imageSize, appearanceScale: scale) else {
-            brushError = BrushStrokeError.pathTooComplex.localizedDescription
+            if reportsErrors { brushError = BrushStrokeError.pathTooComplex.localizedDescription }
             return
         }
 
@@ -993,11 +1023,8 @@ extension EditorSession {
         else { return }
 
         guard !fragments.isEmpty else {
-            self.document?.layers.remove(at: index)
-            if activeLayerID == gesture.layerID {
-                let layers = self.document?.layers ?? []
-                activeLayerID = layers.isEmpty ? nil : layers[min(index, layers.count - 1)].id
-            }
+            // Clears any live mask that used this path as its source; a dangling source makes the project unloadable.
+            finishDeletingLayer(gesture.layerID, baked: [:])
             gesture.changed = true
             penEraseGesture = gesture
             return
@@ -1073,7 +1100,9 @@ extension EditorSession {
                     guard let points = flattenedPenPoints(
                         nodes: Array(nodes[range]), closed: style.closed,
                         flatness: max(0.2, min(0.75, settings.diameter / 32))
-                    ), points.count >= 2 else { return nil }
+                    ) else { return nil }
+                    // A piece whose points coincide (two anchors dragged together) has nothing to paint.
+                    guard points.count >= 2 else { continue }
                     let blank = ImageLayer(name: "Path Stroke", blankSize: drawSize)
                     let stroke = try BrushStroke(layer: blank, mask: false, settings: settings,
                                                  canvas: drawSize, useGPU: false)

@@ -134,7 +134,9 @@ public enum PenProjectError: LocalizedError, Equatable {
 /// Edits Compositor packages through their public format. PNGs are written before an atomic manifest replacement,
 /// so an open Compositor document observes a complete update and reloads it safely.
 public final class PenProjectEditor: @unchecked Sendable {
-    public static let currentProjectVersion = 14
+    /// Must match `ProjectManifest.current` in the app. Every project the app saves is written at that version, and
+    /// a path written into an older project must not be read as a version 14 path (which the app migrates to painted).
+    public static let currentProjectVersion = 17
     private let fileManager: FileManager
 
     public init(fileManager: FileManager = .default) {
@@ -240,6 +242,25 @@ public final class PenProjectEditor: @unchecked Sendable {
             var projectLayers = try layers(in: manifest)
             guard let index = projectLayers.firstIndex(where: { string($0["id"]) == id.uuidString }),
                   let current = try record(from: projectLayers[index]) else { throw PenProjectError.pathNotFound }
+            let changesPath = request.mode != nil || request.color != nil || request.lineWidth != nil || request.nodes != nil
+            if !changesPath {
+                // Renaming or hiding leaves the path, its fill, stroke and erasing, and its pixels untouched.
+                var layer = projectLayers[index]
+                if let name = request.name { layer["name"] = try validName(name) }
+                if let isVisible = request.isVisible { layer["isVisible"] = isVisible }
+                projectLayers[index] = layer
+                manifest["layers"] = projectLayers
+                try writeManifest(manifest, projectURL: url)
+                return try record(from: layer) ?? { throw PenProjectError.invalidProject }()
+            }
+            if let style = projectLayers[index]["vectorPath"] as? [String: Any],
+               style["fill"] != nil || style["brushStroke"] != nil ||
+                (style["eraseStrokes"] as? [Any])?.isEmpty == false ||
+                (style["subpathStarts"] as? [Any])?.isEmpty == false {
+                // Rewriting these from MCP would drop the fill, brush stroke or erasing, or join separated pieces.
+                throw PenProjectError.invalidPath(
+                    "this path has a fill, a brush stroke, erasing or separate pieces; change its shape in Compositor")
+            }
             let mode = request.mode ?? current.mode
             let color = request.color ?? current.color
             let lineWidth = request.lineWidth ?? current.lineWidth
@@ -310,8 +331,10 @@ public final class PenProjectEditor: @unchecked Sendable {
         let box = CGRect(x: minX - padding, y: minY - padding,
                          width: max(1, maxX - minX + padding * 2),
                          height: max(1, maxY - minY + padding * 2)).integral
-        guard box.width <= 1_000_000, box.height <= 1_000_000,
-              box.width * box.height <= 600_000_000 else {
+        // Match the app's Pen limit (`DocumentLimits.maxSide`): a larger layer could not be edited there, and one
+        // past `LayerTransform.isValid` (300,000 wide or placed beyond 1,000,000) makes the project unopenable.
+        guard box.width <= 30_000, box.height <= 30_000,
+              abs(box.minX) <= 1_000_000, abs(box.minY) <= 1_000_000 else {
             throw PenProjectError.invalidPath("bounds exceed Compositor's surface limits")
         }
         let normalized = nodes.map { node in
@@ -324,8 +347,10 @@ public final class PenProjectEditor: @unchecked Sendable {
                                     y: (node.outHandle.y - box.minY) / box.height)
             )
         }
-        let width = max(1, Int(ceil(box.width)))
-        let height = max(1, Int(ceil(box.height)))
+        // The app backs an unpainted path with one transparent pixel stretched over the layer; a full-size
+        // transparent PNG would only spend the document's pixel budget.
+        let width = 1
+        let height = 1
         guard let space = CGColorSpace(name: CGColorSpace.sRGB),
               let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
                                       bytesPerRow: width * 4, space: space,

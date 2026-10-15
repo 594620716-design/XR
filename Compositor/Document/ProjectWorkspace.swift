@@ -146,6 +146,9 @@ final class ProjectWorkspace {
     }
     func confirmQuit() async -> Bool {
         guard !isManaging, finishTextEditing() else { return false }
+        // An unfinished Pen path is committed (or a lone point dropped), as switching tools does; otherwise it
+        // blocks every project operation and Quit just beeps.
+        for tab in quitOrder { tab.session.resolvePenDraft() }
         await settlePendingEdits()
         guard canSwitch else { NSSound.beep(); return false }
         isManaging = true; defer { isManaging = false }
