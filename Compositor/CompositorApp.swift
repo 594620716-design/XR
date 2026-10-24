@@ -45,7 +45,7 @@ struct CompositorApp: App {
                             .configuredKeyboardShortcut("z", modifiers: [.command, .shift])
                     } else {
                         // A Save or Open panel's name field undoes its own typing (see `isEditingText`).
-                        Button(session.history.canUndo ? "Undo \(session.history.undoName)" : "Undo") {
+                        Button(session.penDraft != nil ? "Undo Add Path Point" : session.canUndoPenClosure ? "Undo Close Path" : session.history.canUndo ? "Undo \(session.history.undoName)" : "Undo") {
                             if NSApp.keyWindow is NSSavePanel { NSApp.sendAction(NSSelectorFromString("undo:"), to: nil, from: nil) }
                             else { session.undo() }
                         }

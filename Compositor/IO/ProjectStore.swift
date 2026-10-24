@@ -17,11 +17,7 @@ extension UTType {
 
 nonisolated struct ProjectManifest: Codable, Sendable {
     /// The format version new saves write.
-    static let current = 18
-    /// Every version `load` accepts: each one a release has written (1 through `current`), and 27 from the
-    /// GIF branch's own builds. Leaving out 15 and 16 once locked out projects saved by 1.5.4 and 1.5.5.
-    /// The package-header and manifest checks both read this, so they can't drift apart when `current` is bumped.
-    static let supported = Set(1...current).union([27])
+    static let current = 21
 
     var format = "com.compositor.project"
     var version = ProjectManifest.current
@@ -56,6 +52,8 @@ nonisolated struct ProjectLayerRecord: Codable, Sendable {
     var maskLinked: Bool? = nil
     /// A shape layer's shape, drawn again when the layer is scaled. Older versions ignore it and keep the pixels.
     var shape: LayerShapeStyle? = nil
+    /// A Pen layer's editable path. Version 17 can retain disconnected subpaths in one vector layer.
+    var vectorPath: LayerVectorPathStyle? = nil
     /// The stroke and drop shadow drawn around the layer.
     var effects: LayerEffects? = nil
     var text: LayerTextStyle? = nil
@@ -342,7 +340,7 @@ actor ProjectStore {
             if let gif = layer.gif {
                 let identityLimit = manifest.version >= 17 ? GIFTimelineLimits.frameIdentityLimit : GIFTimelineLimits.maxFrames
                 guard manifest.version >= 17, layer.imageFile != nil, layer.isGroup != true,
-                      layer.adjustment == nil, layer.text == nil, layer.shape == nil,
+                      layer.adjustment == nil, layer.text == nil, layer.shape == nil, layer.vectorPath == nil,
                       gif.sourceFile == "\(layer.id.uuidString).gif",
                       (0..<identityLimit).contains(gif.selectedFrameIndex),
                       gif.geometry.map(\.isValid) ?? true else { throw ProjectError.invalid }
@@ -378,6 +376,17 @@ actor ProjectStore {
             // A line's dashes and caps arrived in version 15, and only lines have them.
             if let shape = layer.shape, shape.lineStyle != nil || shape.lineCap != nil {
                 guard manifest.version >= 15, shape.kind == .line else { throw ProjectError.invalid }
+            }
+            if let vectorPath = layer.vectorPath {
+                guard manifest.version >= 14, vectorPath.isValid,
+                      layer.imageFile == "\(layer.id.uuidString).png", layer.isGroup != true, layer.adjustment == nil,
+                      layer.shape == nil, layer.text == nil, layer.gif == nil else { throw ProjectError.invalid }
+                if vectorPath.fill != nil || vectorPath.brushStroke != nil {
+                    guard manifest.version >= 20 else { throw ProjectError.invalid }
+                }
+                if vectorPath.subpathStarts?.isEmpty == false || vectorPath.eraseStrokes?.isEmpty == false {
+                    guard manifest.version >= 21 else { throw ProjectError.invalid }
+                }
             }
             if let text = layer.text {
                 // Per-letter colors arrived in version 10, per-letter faces in version 11.
