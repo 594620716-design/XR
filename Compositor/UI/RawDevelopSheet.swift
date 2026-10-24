@@ -39,20 +39,20 @@ struct RawDevelopSheet: View {
             .frame(width: 560, height: 340)
 
             Group {
-                slider("Exposure", value: $settings.exposure, range: -3...3, unit: " EV", precision: 2)
-                slider("Temperature", value: $settings.temperature, range: 2000...12000, unit: " K", precision: 0)
-                slider("Tint", value: $settings.tint, range: -150...150, unit: "", precision: 0)
-                slider("Boost", value: $settings.boost, range: 0...1, unit: "", precision: 2)
-                slider("Noise Reduction", value: $settings.noiseReduction, range: 0...1, unit: "", precision: 2)
+                slider("Exposure".localized, value: $settings.exposure, range: -3...3, unit: " EV", precision: 2)
+                slider("Temperature".localized, value: $settings.temperature, range: 2000...12000, unit: " K", precision: 0)
+                slider("Tint".localized, value: $settings.tint, range: -150...150, unit: "", precision: 0)
+                slider("Boost".localized, value: $settings.boost, range: 0...1, unit: "", precision: 2)
+                slider("Noise Reduction".localized, value: $settings.noiseReduction, range: 0...1, unit: "", precision: 2)
                     .disabled(!settings.supportsNoiseReduction)
                     .help(settings.supportsNoiseReduction ? "Smooths grain, at the cost of fine detail"
                                                           : "Not available for this camera")
                 HStack(spacing: 20) {
-                    Toggle("Lens Correction", isOn: $settings.lensCorrection)
+                    Toggle("Lens Correction".localized, isOn: $settings.lensCorrection)
                         .disabled(!settings.supportsLensCorrection)
                         .help(settings.supportsLensCorrection ? "Removes the lens's distortion and vignetting"
                                                               : "This file has no lens profile")
-                    Toggle("Highlight Recovery", isOn: $settings.highlightRecovery)
+                    Toggle("Highlight Recovery".localized, isOn: $settings.highlightRecovery)
                         .disabled(!settings.supportsHighlightRecovery)
                         .help(settings.supportsHighlightRecovery ? "Brings back detail in bright areas the camera partly clipped"
                                                                  : "Not available for this camera")
@@ -60,13 +60,13 @@ struct RawDevelopSheet: View {
                 .padding(.leading, 120)
 
                 HStack {
-                    Button("Reset") { settings.reset() }.disabled(settings.isAsShot)
+                    Button("Reset".localized) { settings.reset() }.disabled(settings.isAsShot)
                     Spacer()
-                    Button("Cancel") { session.finishRawDevelop(nil) }.keyboardShortcut(.cancelAction)
+                    Button("Cancel".localized) { session.finishRawDevelop(nil) }.keyboardShortcut(.cancelAction)
                     // Imports, then opens the Camera Raw Filter on the new layer, as Photoshop opens a RAW in Camera Raw.
-                    Button("Camera Raw…") { session.finishRawDevelop(settings, openingCameraRaw: true) }
-                        .help("Import, then open the Camera Raw Filter")
-                    Button("Import") { session.finishRawDevelop(settings) }.keyboardShortcut(.defaultAction)
+                    Button("Camera Raw…".localized) { session.finishRawDevelop(settings, openingCameraRaw: true) }
+                        .help("Import, then open the Camera Raw Filter".localized)
+                    Button("Import".localized) { session.finishRawDevelop(settings) }.keyboardShortcut(.defaultAction)
                 }
             }
             .disabled(session.rawImporting)

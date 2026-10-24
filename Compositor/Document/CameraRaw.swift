@@ -5,6 +5,9 @@ import AppKit
 nonisolated enum CameraRawWhiteBalance: String, CaseIterable, Sendable {
     case custom = "Custom"
     case auto = "Auto"
+
+    /// The localized name.
+    var localizedName: String { rawValue.localized }
 }
 
 /// Glow's three looks. Warmth tints Diffusion and Bloom from cool to warm; Halation's fringe stays red.
@@ -19,6 +22,9 @@ nonisolated enum CameraRawGlowStyle: String, CaseIterable, Sendable {
         case .halation: return 2
         }
     }
+
+    /// The localized name.
+    var localizedName: String { rawValue.localized }
 }
 
 /// Post-crop vignette. Highlight Priority is the style whose Highlights slider protects bright pixels.
@@ -33,6 +39,9 @@ nonisolated enum CameraRawVignetteStyle: String, CaseIterable, Sendable {
         case .paintOverlay: return 2
         }
     }
+
+    /// The localized name.
+    var localizedName: String { rawValue.localized }
 }
 
 /// Temporary clipping view while Option is held on a Light slider. Never written into the layer.

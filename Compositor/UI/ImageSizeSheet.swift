@@ -106,8 +106,8 @@ struct ImageSizeSheet: View {
         VStack(alignment: .leading, spacing: 18) {
             Text("Image Size").font(.title2.bold())
             Text("Current: \(document.width) × \(document.height) pixels").foregroundStyle(.secondary)
-            Picker("Units", selection: $unit) {
-                ForEach(units.filter { resample || ($0 != "Pixels" && $0 != "Percent") }, id: \.self) { Text($0) }
+            Picker("Units".localized, selection: $unit) {
+                ForEach(units.filter { resample || ($0 != "Pixels" && $0 != "Percent") }, id: \.self) { Text($0.localized) }
             }
             HStack {
                 Text("Width").frame(width: 75, alignment: .leading)
@@ -123,7 +123,7 @@ struct ImageSizeSheet: View {
                     .disabled(!canScrubDimensions)
                 TextField("Height", value: dimension(isWidth: false), format: .number.precision(.fractionLength(0...3)))
             }
-            Toggle("Lock aspect ratio", isOn: $locked).disabled(!resample)
+            Toggle("Lock aspect ratio".localized, isOn: $locked).disabled(!resample)
             HStack {
                 Text("Resolution").scrubbable(sensitivity: 1, value: $resolution, range: 1...9600, step: 1)
                 TextField("Resolution", value: $resolution, format: .number.precision(.fractionLength(0...3)))
@@ -137,7 +137,7 @@ struct ImageSizeSheet: View {
                     }
                 Text("pixels/inch").foregroundStyle(.secondary)
             }
-            Toggle("Resample", isOn: $resample).onChange(of: resample) { _, enabled in
+            Toggle("Resample".localized, isOn: $resample).onChange(of: resample) { _, enabled in
                 if !enabled {
                     width = Double(document.width)
                     height = Double(document.height)
@@ -146,8 +146,8 @@ struct ImageSizeSheet: View {
                 }
             }
             if resample {
-                Picker("Sampling", selection: $sampling) {
-                    ForEach(LayerSampling.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                Picker("Sampling".localized, selection: $sampling) {
+                    ForEach(LayerSampling.allCases, id: \.self) { Text($0.localizedName).tag($0) }
                 }
                 Text("Resizes layer pixels and applies existing transforms. Undo restores the originals.")
                     .font(.callout).foregroundStyle(.secondary)
@@ -158,9 +158,9 @@ struct ImageSizeSheet: View {
             Text(valid ? "Result: \(Int(width.rounded())) × \(Int(height.rounded())) pixels" : "Use 1–\(DocumentLimits.maxSide.formatted()) pixels per side, up to \(DocumentLimits.maxSurfaceMegapixels) megapixels, and 1–9,600 pixels/inch.")
                 .foregroundStyle(valid ? Color.secondary : Color.orange).font(.callout)
             HStack {
-                Button("Cancel") { finish(nil) }.configuredNativeShortcut(.escape)
+                Button("Cancel".localized) { finish(nil) }.configuredNativeShortcut(.escape)
                 Spacer()
-                Button("Resize") {
+                Button("Resize".localized) {
                     guard valid else { return }
                     finish(ImageSizeOptions(width: Int(width.rounded()), height: Int(height.rounded()),
                         resolution: resolution, sampling: sampling))

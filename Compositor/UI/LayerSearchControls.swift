@@ -147,7 +147,7 @@ struct LayersHeader: View {
     /// The funnel's contents: All Layers reads as on while no toggle is on, and turning it on clears them.
     private var typeFilterPopover: some View {
         VStack(alignment: .leading) {
-            Toggle("All Layers", systemImage: "square.3.layers.3d", isOn: Binding(
+            Toggle("All Layers".localized, systemImage: "square.3.layers.3d", isOn: Binding(
                 get: { session.layerTypeFilter.isEmpty },
                 set: { on in if on { session.clearLayerTypeFilter() } }
             ))

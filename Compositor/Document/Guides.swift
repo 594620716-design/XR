@@ -85,7 +85,10 @@ struct GridAppearance: Equatable {
             case .custom: nil
             }
         }
-    }
+    
+        /// The localized name.
+        var localizedName: String { rawValue.localized }
+}
 
     /// The major lines' pattern; subdivisions stay dotted.
     enum Style: String, CaseIterable, Identifiable {
@@ -100,7 +103,10 @@ struct GridAppearance: Equatable {
             case .dots: [1, 2]
             }
         }
-    }
+    
+        /// The localized name.
+        var localizedName: String { rawValue.localized }
+}
 
     static let opacityRange = 1...100
 

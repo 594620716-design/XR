@@ -51,6 +51,9 @@ nonisolated enum ShapeKind: String, CaseIterable, Codable, Sendable {
         path.closeSubpath()
         return path
     }
+
+    /// The localized name.
+    var localizedName: String { rawValue.localized }
 }
 
 /// How a Line shape's stroke is broken up.
@@ -79,6 +82,9 @@ nonisolated enum ShapeLineStyle: String, CaseIterable, Codable, Sendable {
             index % 2 == 0 ? max(0.001, (length - 1) * width) : (length + 1) * width
         }
     }
+
+    /// The localized name.
+    var localizedName: String { rawValue.localized }
 }
 
 /// How the ends of a Line shape, and of each of its dashes, are finished.
@@ -97,6 +103,9 @@ nonisolated enum ShapeLineCap: String, CaseIterable, Codable, Sendable {
         let corner = width / 2 * (abs(end.x - start.x) + abs(end.y - start.y)) / length
         return width / 2 + (corner - width / 2 - 0.0001).rounded(.up)
     }
+
+    /// The localized name.
+    var localizedName: String { rawValue.localized }
 }
 
 extension CGContext {

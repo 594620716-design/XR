@@ -71,8 +71,8 @@ struct CanvasSizeSheet: View {
             Text("\(bytes(draft.originalWidth, draft.originalHeight)) uncompressed RGBA canvas")
                 .font(.callout).foregroundStyle(.secondary)
             Divider()
-            Picker("Units", selection: $draft.unit) {
-                ForEach(CanvasUnit.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+            Picker("Units".localized, selection: $draft.unit) {
+                ForEach(CanvasUnit.allCases, id: \.self) { Text($0.localizedName).tag($0) }
             }
             HStack {
                 Text("Width").frame(width: 60, alignment: .leading)
@@ -84,8 +84,8 @@ struct CanvasSizeSheet: View {
                     .scrubbable(sensitivity: scrubSensitivity(false), value: dimension(false), range: scrubRange(false), step: 1)
                 TextField("Height", value: dimension(false), format: .number.precision(.fractionLength(0...3)))
             }
-            Toggle("Relative to current dimensions", isOn: $draft.relative)
-            Toggle("Lock original aspect ratio", isOn: $draft.locked)
+            Toggle("Relative to current dimensions".localized, isOn: $draft.relative)
+            Toggle("Lock original aspect ratio".localized, isOn: $draft.locked)
                 .onChange(of: draft.locked) { _, locked in
                     if locked { draft.set(draft.displayed(widthAxis: true), widthAxis: true) }
                 }
@@ -122,20 +122,20 @@ struct CanvasSizeSheet: View {
                         .font(.callout).foregroundStyle(.secondary)
                 }.padding(.top, 28)
             }
-            Picker("Canvas extension", selection: $extensionChoice) {
-                ForEach(["Transparent", "Foreground", "Background", "Black", "White", "Custom"], id: \.self) { Text($0) }
+            Picker("Canvas extension".localized, selection: $extensionChoice) {
+                ForEach(["Transparent", "Foreground", "Background", "Black", "White", "Custom"], id: \.self) { Text($0.localized) }
             }
             if extensionChoice == "Custom" {
                 HStack(spacing: 8) {
                     Text("Extension color")
                     DialogColorSwatch(title: "Extension Color", color: $customColor, session: session)
-                        .help("Color for the added canvas")
+                        .help("Color for the added canvas".localized)
                 }
             }
             HStack {
-                Button("Cancel") { DialogColorSwatch.closePicker(session); finish(nil) }.configuredNativeShortcut(.escape)
+                Button("Cancel".localized) { DialogColorSwatch.closePicker(session); finish(nil) }.configuredNativeShortcut(.escape)
                 Spacer()
-                Button("OK") {
+                Button("OK".localized) {
                     guard draft.valid else { return }
                     DialogColorSwatch.closePicker(session)
                     finish(CanvasSizeOptions(width: Int(draft.width.rounded()), height: Int(draft.height.rounded()), anchor: anchor, fill: fill))

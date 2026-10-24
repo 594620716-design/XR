@@ -39,6 +39,9 @@ nonisolated enum NewCanvasUnit: String, CaseIterable, Sendable {
         return (Double(pixels) / resolution * perInch).formatted(.number.precision(.fractionLength(0...2)).grouping(.never)
             .locale(Locale(identifier: "en_US_POSIX")))
     }
+
+    /// The localized name.
+    var localizedName: String { name.localized }
 }
 
 /// What a new canvas starts as: see-through, or a Background layer of white or black.
@@ -97,7 +100,7 @@ struct NewCanvasSheet: View {
                     Spacer()
                     // Preset sizes, tucked into a More button; the size in use is checked.
                     Menu {
-                        Picker("Size", selection: preset) {
+                        Picker("Size".localized, selection: preset) {
                             Text("Custom").tag(CanvasPreset?.none)
                             ForEach(CanvasPreset.groups.indices, id: \.self) { group in
                                 Divider()
@@ -117,23 +120,23 @@ struct NewCanvasSheet: View {
                             .padding(.trailing, -10)
                     }
                     .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
-                    .help("Preset sizes for screens and common formats")
+                    .help("Preset sizes for screens and common formats".localized)
                     .accessibilityLabel("Preset sizes")
                 }
             }
             HStack(spacing: 16) {
-                dimension("Width", text: $width, field: .width)
+                dimension("Width".localized, text: $width, field: .width)
                 Image(systemName: "multiply").foregroundStyle(.tertiary).padding(.top, 20)
-                dimension("Height", text: $height, field: .height)
+                dimension("Height".localized, text: $height, field: .height)
             }
             // The settings are pills, each changed the same way: click to step to the next choice.
             HStack(spacing: 4) {
-                CyclePill(background.title, help: "Start see-through, or with a white or black Background layer. Click to switch.") {
+                CyclePill(background.title.localized, help: "Start see-through, or with a white or black Background layer. Click to switch.") {
                     background = background.next
                 }
                 .accessibilityIdentifier("canvasBackground")
                 Text("·")
-                CyclePill(unit.name, help: "Units: pixels, inches, centimeters or millimeters. Click to switch.") {
+                CyclePill(unit.localizedName, help: "Units: pixels, inches, centimeters or millimeters. Click to switch.") {
                     switchUnit(to: unit.next)
                 }
                 .accessibilityIdentifier("canvasUnit")
@@ -152,10 +155,10 @@ struct NewCanvasSheet: View {
                     .font(.callout).foregroundStyle(.orange)
             }
             HStack(spacing: 10) {
-                Button("Open project") { onOpen?() }.buttonStyle(.bordered)
-                Button("Import") { session.showsImporter = true }.buttonStyle(.bordered)
+                Button("Open project".localized) { onOpen?() }.buttonStyle(.bordered)
+                Button("Import".localized) { session.showsImporter = true }.buttonStyle(.bordered)
                 Spacer()
-                Button("Create canvas") {
+                Button("Create canvas".localized) {
                     guard let w = pixelWidth, let h = pixelHeight else { return }
                     if let onCreate { onCreate(w, h, resolution, background.color) }
                     else { session.createDocument(width: w, height: h, emptyLayer: true, resolution: resolution, background: background.color) }
@@ -207,7 +210,7 @@ struct NewCanvasSheet: View {
                 TextField(title, text: text).textFieldStyle(.plain)
                     .focused($focusedField, equals: field)
                     .accessibilityIdentifier(title.lowercased() + "Input")
-                Text(unit.rawValue).foregroundStyle(.secondary)
+                Text(unit.localizedName).foregroundStyle(.secondary)
             }
             .padding(12).background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 7))
         }

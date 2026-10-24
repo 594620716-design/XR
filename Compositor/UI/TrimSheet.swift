@@ -18,7 +18,7 @@ struct TrimSheet: View {
                 Text("Based On").font(.headline)
                 Picker("", selection: $basedOn) {
                     ForEach(TrimBasedOn.allCases) { option in
-                        Text(option.rawValue).tag(option)
+                        Text(option.localizedName).tag(option)
                     }
                 }
                 .labelsHidden()
@@ -31,12 +31,12 @@ struct TrimSheet: View {
                 Text("Trim Away").font(.headline)
                 Grid(alignment: .leading, horizontalSpacing: 24, verticalSpacing: 8) {
                     GridRow {
-                        Toggle("Top", isOn: $trimTop)
-                        Toggle("Bottom", isOn: $trimBottom)
+                        Toggle("Top".localized, isOn: $trimTop)
+                        Toggle("Bottom".localized, isOn: $trimBottom)
                     }
                     GridRow {
-                        Toggle("Left", isOn: $trimLeft)
-                        Toggle("Right", isOn: $trimRight)
+                        Toggle("Left".localized, isOn: $trimLeft)
+                        Toggle("Right".localized, isOn: $trimRight)
                     }
                 }
             }
@@ -44,10 +44,10 @@ struct TrimSheet: View {
             Divider()
 
             HStack {
-                Button("Cancel") { finish(nil) }
+                Button("Cancel".localized) { finish(nil) }
                     .configuredNativeShortcut(.escape)
                 Spacer()
-                Button("OK") {
+                Button("OK".localized) {
                     let options = TrimOptions(
                         basedOn: basedOn,
                         top: trimTop,

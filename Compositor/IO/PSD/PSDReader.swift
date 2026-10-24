@@ -189,7 +189,7 @@ nonisolated enum PSDReader {
         try cursor.skip(ranges)
         let nameCount = Int(try cursor.u8())
         let nameBytes = try cursor.bytes(nameCount)
-        layer.name = String(bytes: nameBytes, encoding: .macOSRoman) ?? String(bytes: nameBytes, encoding: .isoLatin1) ?? "Layer"
+        layer.name = String(bytes: nameBytes, encoding: .macOSRoman) ?? String(bytes: nameBytes, encoding: .isoLatin1) ?? "Layer".localized
         let namePad = (4 - ((nameCount + 1) % 4)) % 4
         try cursor.skip(namePad)
         while cursor.offset + 12 <= extraEnd {

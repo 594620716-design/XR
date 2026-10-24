@@ -14,5 +14,8 @@
         <string>$(PRODUCT_BUNDLE_IDENTIFIER)-spks</string>
         <string>$(PRODUCT_BUNDLE_IDENTIFIER)-spki</string>
     </array>
+    <!-- ad-hoc 构建下放行不同 Team ID 的嵌套框架(Sparkle),否则 dyld 库校验会拒绝加载 -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
 </dict>
 </plist>

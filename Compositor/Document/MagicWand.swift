@@ -5,6 +5,9 @@ nonisolated enum WandSampleSize: Int, CaseIterable, Sendable {
     var title: String { ["Point Sample", "3 by 3 Average", "5 by 5 Average"][rawValue] }
     /// Pixels either side of the click that are averaged into the color to match.
     var radius: Int { rawValue }
+
+    /// The localized name.
+    var localizedName: String { title.localized }
 }
 
 /// The Magic Wand's options-bar settings.

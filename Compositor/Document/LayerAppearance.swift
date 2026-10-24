@@ -70,6 +70,9 @@ nonisolated enum LayerBlendMode: String, Codable, CaseIterable, Sendable {
 
     // Photoshop's Darker Color and Lighter Color are left out: they compare a pixel's whole
     // brightness rather than working a channel at a time, and neither framework implements them.
+
+    /// The localized name.
+    var localizedName: String { rawValue.localized }
 }
 
 extension EditorSession {

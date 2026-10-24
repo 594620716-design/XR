@@ -4,11 +4,17 @@ import CoreImage
 nonisolated enum CameraRawUprightMode: String, CaseIterable, Sendable {
     case off = "Off"
     case guided = "Guided"
+
+    /// The localized name.
+    var localizedName: String { rawValue.localized }
 }
 
 nonisolated enum CameraRawProjection: String, CaseIterable, Sendable {
     case perspective = "Perspective"
     case rectilinear = "Rectilinear"
+
+    /// The localized name.
+    var localizedName: String { rawValue.localized }
 }
 
 /// A guide line in normalized image coordinates, 0…1 from the lower-left of the pixel grid.
@@ -207,6 +213,9 @@ nonisolated enum CameraRawProcessVersion: String, CaseIterable, Sendable {
             return "Current default. The calibration sliders below apply at full strength."
         }
     }
+
+    /// The localized name.
+    var localizedName: String { rawValue.localized }
 }
 
 nonisolated struct CameraRawCalibrationSettings: Equatable, Sendable {

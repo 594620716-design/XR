@@ -19,6 +19,9 @@ nonisolated enum ColorRange: String, CaseIterable, Sendable, Hashable, Codable {
         }
     }
     static let colorRanges = ColorRange.allCases.filter { $0 != .master }
+
+    /// The localized name.
+    var localizedName: String { rawValue.localized }
 }
 
 /// A hue band in degrees, wrapping at 360: full strength between `rangeStart` and
@@ -150,6 +153,9 @@ nonisolated enum HueSampleMode: String, CaseIterable, Sendable {
         case .remove: "Click the image to narrow this range to exclude that color"
         }
     }
+
+    /// The localized name.
+    var localizedName: String { rawValue.localized }
 }
 
 /// A targeted-adjustment drag in progress.

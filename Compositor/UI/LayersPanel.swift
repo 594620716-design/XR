@@ -35,29 +35,29 @@ struct LayersPanel: View {
             // No spacing: each button's hit area supplies it (8 pt either side makes the 16 pt gap).
             HStack(spacing: 0) {
                 Button { session.addBlankLayer() } label: { FooterIcon(systemName: "plus.square") }
-                    .help("New blank layer (⇧⌘N)").accessibilityLabel("New blank layer")
+                    .help("New blank layer (⇧⌘N)".localized).accessibilityLabel("New blank layer")
                     .accessibilityIdentifier("addBlankLayer").disabled(!session.layersLookEditable)
                 Button { session.groupSelectedLayers() } label: { FooterIcon(systemName: "folder.badge.plus") }
-                    .help("Group selected layers (⌘G)").accessibilityLabel("New folder").disabled(!session.layersLookEditable)
+                    .help("Group selected layers (⌘G)".localized).accessibilityLabel("New folder").disabled(!session.layersLookEditable)
                 LayerMaskMenu(session: session)
                 Menu {
                     // The Image menu's adjustments, then the Filter menu's filters.
                     ForEach(AdjustmentKind.imageAdjustments, id: \.self) { kind in
-                        Button(kind.rawValue) { session.addAdjustment(kind) }
+                        Button(kind.localizedName) { session.addAdjustment(kind) }
                     }
                     Divider()
                     ForEach(AdjustmentKind.filters, id: \.self) { kind in
                         Button(kind.rawValue) { session.addAdjustment(kind) }
                     }
                 } label: { Image(systemName: "circle.lefthalf.filled").footerHitArea() }
-                    .menuStyle(.borderlessButton).fixedSize().help("New adjustment layer").disabled(!session.layersLookEditable)
+                    .menuStyle(.borderlessButton).fixedSize().help("New adjustment layer".localized).disabled(!session.layersLookEditable)
                 Menu {
                     ForEach(LayerEffectKind.allCases, id: \.self) { kind in
-                        Button(kind.rawValue + "…") { session.addEffect(kind) }
+                        Button(kind.localizedName + "…") { session.addEffect(kind) }
                     }
                 } label: { Image(systemName: "sparkles").footerHitArea() }
                     .menuStyle(.borderlessButton).fixedSize()
-                    .help("Add layer effect").accessibilityLabel("Layer effects")
+                    .help("Add layer effect".localized).accessibilityLabel("Layer effects")
                     .accessibilityIdentifier("layerEffects").disabled(!session.layersLookEditable || session.activeLayer?.isGroup != false || session.activeLayer?.asset == nil)
                 Spacer()
                 Button { session.deleteLayerOrMask() } label: { FooterIcon(systemName: "trash") }

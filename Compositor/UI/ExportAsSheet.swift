@@ -116,8 +116,8 @@ struct ExportAsSheet: View {
                         .help(isGIFPreviewPlaying ? "Pause the animation preview." : "Play the animation preview.")
                         .accessibilityLabel(isGIFPreviewPlaying ? "Pause animation preview" : "Play animation preview")
                 }
-                Button("Fit") { zoom = nil }.disabled(zoom == nil)
-                    .help("Show the whole image (⌘0)")
+                Button("Fit".localized) { zoom = nil }.disabled(zoom == nil)
+                    .help("Show the whole image (⌘0)".localized)
                 Button { zoomBy(1) } label: { Image(systemName: "plus.magnifyingglass") }
                     .disabled(JPEGPreview.step(from: shownZoom, in: 1) == nil)
                     .help("Zoom in (⌘+), now \(percent). At 100% each pixel of the export is one pixel of the screen")
@@ -143,7 +143,7 @@ struct ExportAsSheet: View {
                     // The everyday formats side by side, JPEG first; the rest (PDF, and EXR with an HDR layer) in a menu beside them,
                     // which takes the chosen one's name.
                     HStack(spacing: 12) {
-                        Picker("Format", selection: $format) {
+                        Picker("Format".localized, selection: $format) {
                             ForEach([ExportFormat.jpeg, .png], id: \.self) { Text($0.rawValue).tag($0) }
                         }
                         .pickerStyle(.segmented).labelsHidden().fixedSize()
@@ -153,16 +153,16 @@ struct ExportAsSheet: View {
                 GridRow {
                     Text("Size")
                     HStack(spacing: 6) {
-                        sizeField(width, set: setWidth).help("Width in pixels; the height follows, keeping the proportions")
+                        sizeField(width, set: setWidth).help("Width in pixels; the height follows, keeping the proportions".localized)
                         Text("×").foregroundStyle(.secondary)
-                        sizeField(height, set: setHeight).help("Height in pixels; the width follows, keeping the proportions")
+                        sizeField(height, set: setHeight).help("Height in pixels; the width follows, keeping the proportions".localized)
                         Text("px").foregroundStyle(.secondary)
                         Menu("\(scalePercent)%") {
                             ForEach([25, 50, 75, 100, 200], id: \.self) { percent in
                                 Button("\(percent)%") { setScale(Double(percent) / 100) }
                             }
                         }
-                        .fixedSize().help("Scale the export: the document stays as it is")
+                        .fixedSize().help("Scale the export: the document stays as it is".localized)
                     }
                 }
                 if format == .jpeg {
@@ -177,8 +177,8 @@ struct ExportAsSheet: View {
                 if format == .png, deepRaster != nil {
                     GridRow {
                         Text("Depth")
-                        Toggle("16 bits per channel", isOn: $sixteenBit)
-                            .help("Keep the 16-bit layers' full precision, in a file about twice the size")
+                        Toggle("16 bits per channel".localized, isOn: $sixteenBit)
+                            .help("Keep the 16-bit layers' full precision, in a file about twice the size".localized)
                     }
                 }
                 if takesCMYK {
@@ -189,8 +189,8 @@ struct ExportAsSheet: View {
                             // CMYK goes through View › CMYK › Profile's profile, named under the settings; a printer's own
                             // can be loaded here too.
                             if cmyk {
-                                Button("Load Profile…") { loadProfile() }
-                                    .help("Use a CMYK ICC profile, such as the one your printer gave you")
+                                Button("Load Profile…".localized) { loadProfile() }
+                                    .help("Use a CMYK ICC profile, such as the one your printer gave you".localized)
                             }
                         }
                     }
@@ -233,7 +233,7 @@ struct ExportAsSheet: View {
                     GridRow {
                         Text("Background")
                         DialogColorSwatch(title: "Export Background", color: format == .gif ? gifMatte : matte, session: session)
-                            .help("Color that fills transparent areas")
+                            .help("Color that fills transparent areas".localized)
                     }
                 }
             }
@@ -250,8 +250,8 @@ struct ExportAsSheet: View {
                     Text(format == .gif ? gifProgress.map { "Encoding frame \(min($0.completed + 1, $0.total)) of \($0.total)…" } ?? "Updating…" : "Updating…")
                         .foregroundStyle(.secondary).monospacedDigit()
                 }
-                Button("Cancel") { DialogColorSwatch.closePicker(session); finish(nil) }.configuredNativeShortcut(.escape)
-                Button("Export…") {
+                Button("Cancel".localized) { DialogColorSwatch.closePicker(session); finish(nil) }.configuredNativeShortcut(.escape)
+                Button("Export…".localized) {
                     DialogColorSwatch.closePicker(session)
                     if format == .jpeg { UserDefaults.standard.set(options.quality, forKey: Self.qualityKey) }
                     if format == .channelPack, let snapshot { Self.channelChoices[snapshot.manifest.documentID] = channels }
@@ -378,17 +378,17 @@ struct ExportAsSheet: View {
     /// the line under the settings.
     private var colorMenu: some View {
         Menu(cmyk ? "CMYK" : "RGB") {
-            Toggle("RGB", isOn: Binding(get: { !cmyk }, set: { if $0 { cmyk = false } }))
-            Toggle("CMYK", isOn: Binding(get: { cmyk }, set: { if $0 { cmyk = true } }))
+            Toggle("RGB".localized, isOn: Binding(get: { !cmyk }, set: { if $0 { cmyk = false } }))
+            Toggle("CMYK".localized, isOn: Binding(get: { cmyk }, set: { if $0 { cmyk = true } }))
         }
         .menuStyle(.button).buttonStyle(.bordered).fixedSize()
-        .help("CMYK writes a printer's inks through the profile in View › CMYK › Profile")
+        .help("CMYK writes a printer's inks through the profile in View › CMYK › Profile".localized)
     }
 
     private func loadProfile() {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [UTType(filenameExtension: "icc") ?? .data, UTType(filenameExtension: "icm") ?? .data]
-        panel.message = "Choose a CMYK ICC profile, such as the one your printer gave you"
+        panel.message = "Choose a CMYK ICC profile, such as the one your printer gave you".localized
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do { session.proofProfile = try CMYK.load(url) }
         catch { self.error = error.localizedDescription }
@@ -399,8 +399,8 @@ struct ExportAsSheet: View {
     @ViewBuilder private var moreFormats: some View {
         let others = formats.filter { $0 != .png && $0 != .jpeg }
         let chosen = others.contains(format)
-        let menu = Menu(chosen ? format.rawValue : "More") {
-            Picker("More formats", selection: $format) {
+        let menu = Menu(chosen ? format.rawValue : "More".localized) {
+            Picker("More formats".localized, selection: $format) {
                 ForEach(others, id: \.self) { Text($0.rawValue).tag($0) }
             }
             .pickerStyle(.inline).labelsHidden()

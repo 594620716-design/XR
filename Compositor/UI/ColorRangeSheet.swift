@@ -30,17 +30,17 @@ struct ColorRangeSheet: View {
                 TextField("Fuzziness", value: fuzziness, format: .number.precision(.fractionLength(0)))
                     .frame(width: 48).textFieldStyle(.roundedBorder).multilineTextAlignment(.trailing)
             }
-            .help("How far a color may be from the picked ones and still be selected")
-            Toggle("Invert", isOn: Binding(get: { edit?.invert ?? false }, set: { edit?.invert = $0; session.updateColorRange() }))
-                .help("Select everything except those colors, such as all but a green screen")
+            .help("How far a color may be from the picked ones and still be selected".localized)
+            Toggle("Invert".localized, isOn: Binding(get: { edit?.invert ?? false }, set: { edit?.invert = $0; session.updateColorRange() }))
+                .help("Select everything except those colors, such as all but a green screen".localized)
             if let error = edit?.error {
                 Text(error).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
             }
             Divider()
             HStack {
-                Button("Cancel") { session.cancelColorRange() }.configuredNativeShortcut(.escape)
+                Button("Cancel".localized) { session.cancelColorRange() }.configuredNativeShortcut(.escape)
                 Spacer()
-                Button("OK") { session.commitColorRange() }
+                Button("OK".localized) { session.commitColorRange() }
                     .configuredNativeShortcut(.return).buttonStyle(.borderedProminent)
             }
         }

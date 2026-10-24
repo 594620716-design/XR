@@ -7,6 +7,9 @@ public enum TrimBasedOn: String, CaseIterable, Identifiable, Sendable {
     case bottomRightPixelColor = "Bottom Right Pixel Color"
 
     public var id: String { rawValue }
+
+    /// The localized name.
+    var localizedName: String { rawValue.localized }
 }
 
 nonisolated public struct TrimOptions: Sendable, Equatable {

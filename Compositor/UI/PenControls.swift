@@ -6,15 +6,15 @@ struct PenControls: View {
     var body: some View {
         HStack(spacing: 12) {
             Text("Pen").font(ToolHeaderStyle.titleFont)
-            Picker("Action", selection: Binding(get: { session.penAction }, set: { action in
+            Picker("Action".localized, selection: Binding(get: { session.penAction }, set: { action in
                 session.selectPenAction(action)
             })) {
                 ForEach(PenAction.allCases, id: \.self) { action in
-                    Text(action.rawValue).tag(action)
+                    Text(action.localizedName).tag(action)
                 }
             }
             .pickerStyle(.segmented).labelsHidden().fixedSize()
-            .help("Draw creates paths; Bend curves a segment; X cuts; Shift-E erases. Tab switches tools")
+            .help("Draw creates paths; Bend curves a segment; X cuts; Shift-E erases. Tab switches tools".localized)
 
             if session.penAction == .erase {
                 Text("Size").scrubbable(sensitivity: 1, value: $session.brushSettings.diameter, range: 1...2000)
@@ -29,7 +29,7 @@ struct PenControls: View {
                     session.brushSettings.diameter = value.isFinite ? min(2_000, max(1, value)) : 40
                 }
                 .unitSuffix("px")
-                .help("Vector eraser diameter; [ and ] change it")
+                .help("Vector eraser diameter; [ and ] change it".localized)
             }
 
             HStack(spacing: 6) {
@@ -41,19 +41,19 @@ struct PenControls: View {
                         .frame(width: 36, height: 18)
                 }
                 .buttonStyle(.plain)
-                .help("Use the foreground color")
+                .help("Use the foreground color".localized)
             }
 
-            Button("Fill Path") { session.fillPenPathWithForeground() }
+            Button("Fill Path".localized) { session.fillPenPathWithForeground() }
                 .disabled(!session.canFillPenPath)
-                .help("Add or update the foreground-color fill while keeping the path editable")
-            Button("Stroke Path with Brush") { session.strokePenPathWithBrush() }
+                .help("Add or update the foreground-color fill while keeping the path editable".localized)
+            Button("Stroke Path with Brush".localized) { session.strokePenPathWithBrush() }
                 .disabled(!session.canStrokePenPath)
-                .help("Add or update an editable path stroke using the current \(Int(session.brushSettings.diameter.rounded())) px Brush, hardness and opacity")
-            Button("Load Path as Selection") { session.loadPenPathSelection() }
+                .help(String.localizedStringWithFormat(NSLocalizedString("Add or update an editable path stroke using the current %@ px Brush, hardness and opacity", comment: ""), String(Int(session.brushSettings.diameter.rounded()))))
+            Button("Load Path as Selection".localized) { session.loadPenPathSelection() }
                 .keyboardShortcut(.return, modifiers: .command)
                 .disabled(!session.canLoadPenPathSelection)
-                .help("Convert the current path to a selection without filling it (⌘Return). Open paths close between their endpoints")
+                .help("Convert the current path to a selection without filling it (⌘Return). Open paths close between their endpoints".localized)
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 18).toolHeaderBar().releasesFocusOnCommit(session)

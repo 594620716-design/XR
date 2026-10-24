@@ -103,7 +103,26 @@ enum NavigationTool: String, CaseIterable {
     /// Tools that draw and edit selections, sharing modifiers, moving, and nudging.
     var isSelectionTool: Bool { self == .marquee || self == .lasso || self == .wand }
     var symbol: String { self == .type ? "textformat" : self == .eyedropper ? "eyedropper" : self == .marquee ? "rectangle.dashed" : self == .lasso ? "lasso" : self == .wand ? "wand.and.stars" : self == .brush ? "paintbrush.pointed" : self == .spotHealing ? "bandage" : self == .cloneStamp ? "seal" : self == .blur ? "drop" : self == .gradient ? "square.bottomhalf.filled" : self == .shape ? "square.on.circle" : self == .pen ? "point.bottomleft.forward.to.point.topright.scurvepath" : self == .crop ? "crop" : self == .move ? "arrow.up.left.and.arrow.down.right" : self == .hand ? "hand.draw" : "magnifyingglass" }
-    var label: String { self == .type ? "Type (T)" : self == .eyedropper ? "Eyedropper (I)" : self == .marquee ? "Marquee (M)" : self == .lasso ? "Lasso (L)" : self == .wand ? "Magic (W) · Tab switches Wand and Object" : self == .brush ? "Brush (B) · Eraser (E)" : self == .spotHealing ? "Spot Healing Brush (J)" : self == .cloneStamp ? "Clone Stamp (S) · Option-click sets the source" : self == .blur ? "Smear (R)" : self == .gradient ? "Gradient (G)" : self == .shape ? "Shape (U) · Shift-U switches Rectangle/Ellipse" : self == .pen ? "Pen (P) · Tab switches Draw, Bend, Cut and Erase" : self == .crop ? "Crop (C)" : self == .move ? "Move / Transform (V)" : self == .hand ? "Hand (H)" : "Zoom (Z)" }
+    var label: String {
+        switch self {
+        case .type: return NSLocalizedString("Type (T)", comment: "")
+        case .eyedropper: return NSLocalizedString("Eyedropper (I)", comment: "")
+        case .marquee: return NSLocalizedString("Marquee (M)", comment: "")
+        case .lasso: return NSLocalizedString("Lasso (L)", comment: "")
+        case .wand: return NSLocalizedString("Magic (W) · Tab switches Wand and Object", comment: "")
+        case .brush: return NSLocalizedString("Brush (B) · Eraser (E)", comment: "")
+        case .spotHealing: return NSLocalizedString("Spot Healing Brush (J)", comment: "")
+        case .cloneStamp: return NSLocalizedString("Clone Stamp (S) · Option-click sets the source", comment: "")
+        case .blur: return NSLocalizedString("Smear (R)", comment: "")
+        case .gradient: return NSLocalizedString("Gradient (G)", comment: "")
+        case .shape: return NSLocalizedString("Shape (U) · Shift-U switches Rectangle/Ellipse", comment: "")
+        case .pen: return NSLocalizedString("Pen (P) · Tab switches Draw, Bend, Cut and Erase", comment: "")
+        case .crop: return NSLocalizedString("Crop (C)", comment: "")
+        case .move: return NSLocalizedString("Move / Transform (V)", comment: "")
+        case .hand: return NSLocalizedString("Hand (H)", comment: "")
+        default: return NSLocalizedString("Zoom (Z)", comment: "")
+        }
+    }
 }
 
 private struct GIFLayerTimelineState {
@@ -797,7 +816,7 @@ final class EditorSession {
     var canRedo: Bool { canUseHistory && history.canRedo }
 
     var canUndoPenClosure: Bool {
-        guard tool == .pen, penDraft == nil, history.undoName == "Path",
+        guard tool == .pen, penDraft == nil, history.undoName == "Path".localized,
               let closure = penClosureUndo, activeLayerID == closure.layerID,
               activeLayer?.liveVectorPath?.style.closed == true
         else { return false }
@@ -842,7 +861,7 @@ final class EditorSession {
 
     /// Nestable transaction boundary; future tools can group a complete gesture.
     func beginEdit(_ name: String) {
-        history.begin(name, document: document, selection: activeLayerID)
+        history.begin(name.localized, document: document, selection: activeLayerID)
     }
 
     func endEdit() {
@@ -872,8 +891,8 @@ final class EditorSession {
         guard canEditLayers, let document else { return }
         let names = Set(document.layers.map(\.name))
         var number = 1
-        while names.contains("Layer \(number)") { number += 1 }
-        var layer = ImageLayer(name: "Layer \(number)", blankSize: document.size)
+        while names.contains(String.localizedStringWithFormat(NSLocalizedString("Layer %d", comment: ""), number)) { number += 1 }
+        var layer = ImageLayer(name: String.localizedStringWithFormat(NSLocalizedString("Layer %d", comment: ""), number), blankSize: document.size)
         layer.parentID = activeLayer?.isGroup == true ? activeLayerID : activeLayer?.parentID
         if let parent = layer.parentID { collapsedGroupIDs.remove(parent) }
         var insertion = document.layers.firstIndex { $0.id == activeLayerID }.map { $0 + 1 } ?? document.layers.count
@@ -1342,13 +1361,13 @@ final class EditorSession {
     /// every pixel's detail.
     private static func firstLayer(size: CGSize, background: CGColor?) -> ImageLayer {
         guard let background, let context = try? BrushRaster.context(width: Int(size.width), height: Int(size.height), mask: false)
-        else { return ImageLayer(name: "Layer 1", blankSize: size) }
+        else { return ImageLayer(name: String.localizedStringWithFormat(NSLocalizedString("Layer %d", comment: ""), 1), blankSize: size) }
         context.setFillColor(background)
         context.fill(CGRect(origin: .zero, size: size))
         guard let image = context.makeImage(), let thumbnail = try? PixelAdjust.thumbnail(of: image)
-        else { return ImageLayer(name: "Layer 1", blankSize: size) }
-        var layer = ImageLayer(name: "Background", blankSize: size)
-        layer.asset = ImportedImage(image: image, thumbnail: thumbnail, name: "Background")
+        else { return ImageLayer(name: String.localizedStringWithFormat(NSLocalizedString("Layer %d", comment: ""), 1), blankSize: size) }
+        var layer = ImageLayer(name: "Background".localized, blankSize: size)
+        layer.asset = ImportedImage(image: image, thumbnail: thumbnail, name: "Background".localized)
         return layer
     }
 

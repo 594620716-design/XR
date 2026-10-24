@@ -5,12 +5,18 @@ import AppKit
 nonisolated enum BrushToolMode: String, CaseIterable, Sendable {
     case paint = "Paint"
     case erase = "Erase"
+
+    /// The localized name.
+    var localizedName: String { rawValue.localized }
 }
 
 nonisolated enum BlurToolMode: String, CaseIterable, Sendable {
     case liquify = "Liquify"
     case blur = "Blur"
     case smudge = "Smudge"
+
+    /// The localized name.
+    var localizedName: String { rawValue.localized }
 }
 
 /// A Smudge or Liquify stroke in progress. It works on the active layer as the canvas shows it, at document size,

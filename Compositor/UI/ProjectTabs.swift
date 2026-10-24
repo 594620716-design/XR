@@ -253,7 +253,7 @@ private struct NewTabDropSlot: View {
     /// Shared with the bar around it, which takes the same drop, so the slot lights up wherever on the bar it's headed.
     @Binding var targeted: Bool
     var body: some View {
-        Label("New", systemImage: "plus")
+        Label("New".localized, systemImage: "plus")
             .font(.system(size: 12, weight: .medium))
             .padding(.horizontal, 14).frame(height: 28)
             .background(targeted ? Color.accentColor.opacity(0.3) : Color.white.opacity(0.04), in: Capsule())
@@ -261,7 +261,7 @@ private struct NewTabDropSlot: View {
                 style: StrokeStyle(lineWidth: targeted ? 2 : 1, dash: targeted ? [] : [4, 3])))
             .contentShape(Capsule())
             .fixedSize()
-            .help("Drop to open in a new canvas")
+            .help("Drop to open in a new canvas".localized)
             .accessibilityLabel("Drop into new canvas")
             .onDrop(of: [UTType.fileURL.identifier, UTType.image.identifier, ProjectWorkspace.layerType], delegate:
                 ProjectTabDropDelegate(workspace: workspace, destination: nil, targeted: $targeted))

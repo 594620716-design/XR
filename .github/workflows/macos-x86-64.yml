@@ -1,0 +1,198 @@
+name: MacOS X86_64
+
+on:
+  workflow_dispatch:
+    inputs:
+      configuration:
+        description: "Configuration"
+        required: true
+        default: Release
+        type: choice
+        options: [Debug, Release]
+      sign:
+        description: "Sign with Developer ID + notarize (requires secrets)"
+        required: false
+        default: "false"
+        type: choice
+        options: ["false", "true"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build-x86_64
+    runs-on: macos-26
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Select Xcode 26.6
+        run: sudo xcode-select -s /Applications/Xcode_26.6.app
+
+      # Only needed for the signed path. Puts the Developer ID cert into an
+      # ephemeral keychain that the rest of the job (archive/export, codesign)
+      # uses.
+      - name: Install signing certificate
+        if: ${{ inputs.sign == 'true' }}
+        env:
+          MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          MACOS_CERTIFICATE_P12_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_P12_PASSWORD }}
+          MACOS_KEYCHAIN_PASSWORD: ${{ secrets.MACOS_KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KEYCHAIN="$RUNNER_TEMP/build.keychain"
+          echo "$MACOS_CERTIFICATE_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$MACOS_KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security default-keychain -s "$KEYCHAIN"
+          security unlock-keychain -p "$MACOS_KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" \
+            -P "$MACOS_CERTIFICATE_P12_PASSWORD" -T /usr/bin/codesign -T /usr/bin/productsign
+          security set-key-partition-list -S apple-tool:,apple: -s "$MACOS_KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security list-keychain -d user -s "$KEYCHAIN"
+
+      - name: Resolve Swift packages
+        run: >
+          xcodebuild -resolvePackageDependencies
+          -project Compositor.xcodeproj
+          -scheme Compositor
+          -onlyUsePackageVersionsFromResolvedFile
+
+      # Unsigned builds are a plain build (ad-hoc). Signed builds archive with
+      # the Developer ID cert and export through ExportOptions so the app is
+      # properly signed and ready for notarization.
+      - name: Build app
+        id: build
+        run: |
+          set -euo pipefail
+          CFG="${{ inputs.configuration }}"
+          if [[ "${{ inputs.sign }}" == "true" ]]; then
+            IDENTITY="${{ secrets.MACOS_CERT_SIGN_IDENTITY }}"
+            TEAM="${{ secrets.MACOS_CERT_TEAM_ID }}"
+            xcodebuild archive \
+              -project Compositor.xcodeproj \
+              -scheme Compositor \
+              -configuration "$CFG" \
+              -destination 'generic/platform=macOS' \
+              ARCHS=x86_64 ONLY_ACTIVE_ARCH=NO \
+              -archivePath "$PWD/Compositor.xcarchive" \
+              -derivedDataPath DerivedData \
+              CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="$IDENTITY" DEVELOPMENT_TEAM="$TEAM"
+            cat > "$RUNNER_TEMP/ExportOptions.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>method</key>
+              <string>developer-id</string>
+              <key>signingStyle</key>
+              <string>manual</string>
+              <key>teamID</key>
+              <string>$TEAM</string>
+              <key>signingCertificate</key>
+              <string>Developer ID Application</string>
+          </dict>
+          </plist>
+          PLIST
+            xcodebuild -exportArchive \
+              -archivePath "$PWD/Compositor.xcarchive" \
+              -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+              -exportPath "$PWD/export"
+            APP_PATH="$PWD/export/Compositor.app"
+          else
+            # The runner is Apple Silicon, so cross-compile with a generic
+            # destination and an explicit ARCHS override (the project pins arm64).
+            xcodebuild build \
+              -project Compositor.xcodeproj \
+              -scheme Compositor \
+              -configuration "$CFG" \
+              -destination 'generic/platform=macOS' \
+              ARCHS=x86_64 ONLY_ACTIVE_ARCH=NO \
+              -derivedDataPath DerivedData \
+              CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO
+            APP_PATH="$PWD/DerivedData/Build/Products/$CFG/Compositor.app"
+          fi
+          echo "APP_PATH=$APP_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Verify architecture
+        run: lipo -info "${{ steps.build.outputs.APP_PATH }}/Contents/MacOS/Compositor"
+
+      - name: Install create-dmg
+        run: brew install create-dmg
+
+      - name: Package DMG
+        id: dmg
+        run: |
+          set -euo pipefail
+          CFG="${{ inputs.configuration }}"
+          APP_PATH="${{ steps.build.outputs.APP_PATH }}"
+          STAGE="$PWD/dmg-stage"
+          rm -rf "$STAGE"
+          mkdir -p "$STAGE"
+          cp -R "$APP_PATH" "$STAGE/"
+          # 兼容版(已应用 macOS 12 兼容补丁,部署目标 12.0)文件名加 -compatible 后缀;
+          # 以构建产物的 minos(最低系统版本)为准,无需额外传递开关。
+          MINOS="$(vtool -show-build "$APP_PATH/Contents/MacOS/Compositor" 2>/dev/null | awk '/minos/ {print $2}' || true)"
+          SUFFIX=""
+          [[ "$MINOS" == 12.* ]] && SUFFIX="-compatible"
+          DMG="$PWD/Compositor-MacOS-X86_64-${CFG}${SUFFIX}.dmg"
+          rm -f "$DMG"
+          # Same window/icon layout as scripts/release.sh.
+          create-dmg \
+            --volname "Compositor" \
+            --window-pos 200 120 --window-size 600 380 \
+            --icon-size 128 --text-size 13 \
+            --icon "Compositor.app" 160 180 --hide-extension "Compositor.app" \
+            --app-drop-link 440 180 \
+            "$DMG" "$STAGE"
+          echo "DMG_PATH=$DMG" >> "$GITHUB_OUTPUT"
+
+      # Notarize the app, then sign and notarize the DMG, and staple both.
+      - name: Notarize and staple
+        if: ${{ inputs.sign == 'true' }}
+        env:
+          MACOS_CERT_SIGN_IDENTITY: ${{ secrets.MACOS_CERT_SIGN_IDENTITY }}
+          MACOS_CERT_TEAM_ID: ${{ secrets.MACOS_CERT_TEAM_ID }}
+          MACOS_NOTARIZATION_APPLE_ID: ${{ secrets.MACOS_NOTARIZATION_APPLE_ID }}
+          MACOS_NOTARIZATION_APPLE_PASSWORD: ${{ secrets.MACOS_NOTARIZATION_APPLE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          APP_PATH="${{ steps.build.outputs.APP_PATH }}"
+          DMG_PATH="${{ steps.dmg.outputs.DMG_PATH }}"
+          # Notarize the app first, then staple the ticket into it.
+          ditto -c -k --keepParent "$APP_PATH" "$RUNNER_TEMP/Compositor-app.zip"
+          xcrun notarytool submit "$RUNNER_TEMP/Compositor-app.zip" \
+            --apple-id "$MACOS_NOTARIZATION_APPLE_ID" \
+            --password "$MACOS_NOTARIZATION_APPLE_PASSWORD" \
+            --team-id "$MACOS_CERT_TEAM_ID" --wait
+          xcrun stapler staple "$APP_PATH"
+          # Sign the DMG (it is not signed by create-dmg) and notarize it too.
+          codesign --sign "$MACOS_CERT_SIGN_IDENTITY" --timestamp "$DMG_PATH"
+          xcrun notarytool submit "$DMG_PATH" \
+            --apple-id "$MACOS_NOTARIZATION_APPLE_ID" \
+            --password "$MACOS_NOTARIZATION_APPLE_PASSWORD" \
+            --team-id "$MACOS_CERT_TEAM_ID" --wait
+          xcrun stapler staple "$DMG_PATH"
+          # Gatekeeper sanity checks, mirroring scripts/release.sh.
+          spctl --assess --type open --context context:primary-signature --verbose=2 "$DMG_PATH"
+          spctl --assess --type execute --verbose=2 "$APP_PATH"
+
+      - name: Upload DMG
+        uses: actions/upload-artifact@v7
+        with:
+          name: Compositor-MacOS-X86_64-${{ inputs.configuration }}-dmg
+          path: ${{ steps.dmg.outputs.DMG_PATH }}
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          DMG_PATH="${{ steps.dmg.outputs.DMG_PATH }}"
+          TAG="x86_64-$(date +%Y%m%d-%H%M%S)"
+          gh release create "$TAG" "$DMG_PATH" \
+            --title "Compositor x86_64 (${{ inputs.configuration }})" \
+            --notes "Build ${{ inputs.configuration }} for Intel Macs (x86_64). Download $(basename "$DMG_PATH") and drag it into Applications."

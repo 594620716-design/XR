@@ -21,7 +21,7 @@ struct ColorPaletteControls: View {
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
             .offset(x: swatchSize + 3, y: -3)
-            .help("Swap foreground and background (X)")
+            .help("Swap foreground and background (X)".localized)
             .accessibilityLabel("Swap colors")
             Button { session.resetPaletteColors() } label: {
                 Image(systemName: "arrow.counterclockwise")
@@ -32,7 +32,7 @@ struct ColorPaletteControls: View {
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
             .offset(x: -1, y: swatchSize + 3)
-            .help("Default colors (D)")
+            .help("Default colors (D)".localized)
             .accessibilityLabel("Default colors")
         }
         .frame(width: swatchSize + swatchOffset, height: swatchSize + swatchOffset, alignment: .topLeading)
@@ -41,8 +41,8 @@ struct ColorPaletteControls: View {
             VStack(alignment: .leading, spacing: 12) {
                 Text(choosingMaskBackground == true ? "Mask background" : "Mask foreground").font(.headline)
                 HStack {
-                    Button("Black · Hide") { chooseMask(.black) }
-                    Button("White · Reveal") { chooseMask(.white) }
+                    Button("Black · Hide".localized) { chooseMask(.black) }
+                    Button("White · Reveal".localized) { chooseMask(.white) }
                 }
             }.padding(16)
         }
@@ -56,7 +56,7 @@ struct ColorPaletteControls: View {
         }
     }
     private func swatch(background: Bool) -> some View {
-        let label = background ? "Background color" : "Foreground color"
+        let label = (background ? "Background color" : "Foreground color").localized
         let shape = RoundedRectangle(cornerRadius: 6, style: .continuous)
         return Button {
             if session.isMaskSelected { choosingMaskBackground = background }

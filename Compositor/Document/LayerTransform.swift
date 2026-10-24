@@ -12,6 +12,9 @@ nonisolated enum LayerSampling: String, CaseIterable, Codable, Sendable {
         case .high: return .high
         }
     }
+
+    /// The localized name.
+    var localizedName: String { rawValue.localized }
 }
 
 /// Unrotated bounds in document pixels; rotation is clockwise around their center.

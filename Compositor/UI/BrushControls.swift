@@ -4,39 +4,39 @@ struct BrushControls: View {
     @Bindable var session: EditorSession
     var body: some View {
         HStack(spacing: 12) {
-            Text(session.tool == .spotHealing ? "Spot Healing" : session.tool == .cloneStamp ? "Clone Stamp" : session.tool == .blur ? "Smear" : session.brushMode == .erase ? "Eraser" : "Brush").font(ToolHeaderStyle.titleFont)
+            Text(session.tool == .spotHealing ? "Spot Healing".localized : session.tool == .cloneStamp ? "Clone Stamp".localized : session.tool == .blur ? "Smear".localized : session.brushMode == .erase ? "Eraser".localized : "Brush".localized).font(ToolHeaderStyle.titleFont)
             ScrollView(.horizontal) {
                 HStack(spacing: 12) {
                     if session.tool == .brush {
-                        Picker("Mode", selection: $session.brushMode) {
-                            ForEach(BrushToolMode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                        Picker("Mode".localized, selection: $session.brushMode) {
+                            ForEach(BrushToolMode.allCases, id: \.self) { Text($0.localizedName).tag($0) }
                         }
                         .pickerStyle(.segmented).labelsHidden().fixedSize()
-                        .help("Paint with the foreground color (B), or erase pixels away (E)")
+                        .help("Paint with the foreground color (B), or erase pixels away (E)".localized)
                     }
                     if session.tool == .blur {
-                        Picker("Mode", selection: $session.blurMode) {
-                            ForEach(BlurToolMode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                        Picker("Mode".localized, selection: $session.blurMode) {
+                            ForEach(BlurToolMode.allCases, id: \.self) { Text($0.localizedName).tag($0) }
                         }
                         .pickerStyle(.segmented).labelsHidden().fixedSize()
-                        .help("Liquify pushes pixels · Blur softens · Smudge drags color along")
+                        .help("Liquify pushes pixels · Blur softens · Smudge drags color along".localized)
                     }
                     if session.tool == .spotHealing {
-                        Picker("Type", selection: $session.spotHealingMode) {
-                            ForEach(SpotHealingMode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                        Picker("Type".localized, selection: $session.spotHealingMode) {
+                            ForEach(SpotHealingMode.allCases, id: \.self) { Text($0.localizedName).tag($0) }
                         }
                         .pickerStyle(.segmented).labelsHidden().fixedSize()
                         .accessibilityIdentifier("spotHealingType")
                     }
                     if session.tool == .cloneStamp {
-                        Toggle("Aligned", isOn: $session.cloneSettings.aligned)
-                            .help("Keep the source moving with the brush between strokes; off starts every stroke at the source point")
-                        Picker("Sample", selection: $session.cloneSettings.sampleAllLayers) {
+                        Toggle("Aligned".localized, isOn: $session.cloneSettings.aligned)
+                            .help("Keep the source moving with the brush between strokes; off starts every stroke at the source point".localized)
+                        Picker("Sample".localized, selection: $session.cloneSettings.sampleAllLayers) {
                             Text("This Layer").tag(false)
                             Text("All Layers").tag(true)
                         }
                         .pickerStyle(.segmented).labelsHidden().fixedSize()
-                        .help("Copy from the active layer only, or from every visible layer as shown")
+                        .help("Copy from the active layer only, or from every visible layer as shown".localized)
                     }
                     Text("Size").scrubbable(sensitivity: 1.0, value: $session.brushSettings.diameter, range: 1...2000)
                     TextField("Size", value: Binding<Double>(get: { Double(session.brushSettings.diameter) },
@@ -54,7 +54,7 @@ struct BrushControls: View {
                     if session.tool == .brush, PenInput.shared.seen {
                         Toggle(isOn: $session.brushSettings.pressureSize) { Image(systemName: "pencil.tip.crop.circle") }
                             .toggleStyle(PenPressureToggleStyle())
-                            .help("Pen pressure sets the size: a light touch paints a thinner line")
+                            .help("Pen pressure sets the size: a light touch paints a thinner line".localized)
                             .accessibilityLabel("Pressure for size")
                     }
                     Text("Hardness").scrubbable(sensitivity: 0.01, value: $session.brushSettings.hardness, range: 0...1)
@@ -75,12 +75,12 @@ struct BrushControls: View {
                     .frame(width: 42).textFieldStyle(.roundedBorder)
                     .arrowSteps(value: { Double(session.brushSettings.opacity * 100) },
                                 change: { session.brushSettings.opacity = CGFloat(min(100, max(1, $0)) / 100) })
-                    .help("Press 1–9 for 10–90%, 0 for 100%")
+                    .help("Press 1–9 for 10–90%, 0 for 100%".localized)
                     .unitSuffix("%")
                     if session.tool == .brush, PenInput.shared.seen {
                         Toggle(isOn: $session.brushSettings.pressureOpacity) { Image(systemName: "pencil.tip.crop.circle") }
                             .toggleStyle(PenPressureToggleStyle())
-                            .help("Pen pressure sets the opacity: a light touch paints fainter, up to the brush’s Opacity")
+                            .help("Pen pressure sets the opacity: a light touch paints fainter, up to the brush’s Opacity".localized)
                             .accessibilityLabel("Pressure for opacity")
                     }
                     // Blur softens by a radius of its own, apart from how strongly it lays the softening down.
@@ -95,7 +95,7 @@ struct BrushControls: View {
                         .frame(width: 42).textFieldStyle(.roundedBorder)
                         .arrowSteps(value: { Double(session.brushSettings.blurRadius) },
                                     change: { session.brushSettings.blurRadius = CGFloat(min(50, max(0.5, $0))) })
-                        .help("How far the blur softens, in pixels")
+                        .help("How far the blur softens, in pixels".localized)
                         .unitSuffix("px")
                     }
                     // Paint and Erase only: healing, cloning and smearing have their own feel.
@@ -109,10 +109,10 @@ struct BrushControls: View {
                         .frame(width: 42).textFieldStyle(.roundedBorder)
                         .arrowSteps(value: { Double(session.brushSettings.smoothing) },
                                     change: { session.brushSettings.smoothing = CGFloat(min(100, max(0, $0))) })
-                        .help("The brush trails the pointer on a string this long, so a shaky hand still draws a smooth line")
+                        .help("The brush trails the pointer on a string this long, so a shaky hand still draws a smooth line".localized)
                     }
                     if session.isMaskSelected {
-                        Picker("Paint", selection: $session.maskPaintWhite) {
+                        Picker("Paint".localized, selection: $session.maskPaintWhite) {
                             Text("Black · Hide").tag(false)
                             Text("White · Reveal").tag(true)
                         }.frame(width: 180)
@@ -130,7 +130,7 @@ struct BrushControls: View {
                             }
                             .buttonStyle(.plain)
                             .disabled(!session.canEditPalette)
-                            .help("Foreground color")
+                            .help("Foreground color".localized)
                             .accessibilityLabel("Foreground color")
                         }
                     }

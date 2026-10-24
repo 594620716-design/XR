@@ -57,7 +57,7 @@ struct ContentView: View {
             if session.tool == .eyedropper {
                 HStack(spacing: 16) {
                     Text("Eyedropper").font(ToolHeaderStyle.titleFont)
-                    Toggle("Sample Ring", isOn: $session.showsSampleRing).toggleStyle(.checkbox)
+                    Toggle("Sample Ring".localized, isOn: $session.showsSampleRing).toggleStyle(.checkbox)
                     Spacer()
                 }.padding(.horizontal, 18).toolHeaderBar()
                 Divider()
@@ -207,11 +207,11 @@ struct ContentView: View {
         // The toolbar itself is hidden and shown by the window (see `toggleCanvasOnly`), which lays its buttons out
         // again properly; hidden here instead, it came back with the tabs over the window buttons.
         .ignoresSafeArea(.container, edges: session.canvasOnly ? .top : [])
-        .navigationTitle(session.projectURL?.deletingPathExtension().lastPathComponent ?? "Untitled")
+        .navigationTitle(session.projectURL?.deletingPathExtension().lastPathComponent ?? "Untitled".localized)
         .toolbar {
             ToolbarItem(placement: .navigation) {
-                Button { requestNewCanvas() } label: { Label("New canvas", systemImage: "plus") }
-                    .help("New canvas (⌘N)").accessibilityIdentifier("newCanvasToolbar")
+                Button { requestNewCanvas() } label: { Label("New canvas".localized, systemImage: "plus") }
+                    .help("New canvas (⌘N)".localized).accessibilityIdentifier("newCanvasToolbar")
                     .disabled(session.isImporting || session.showsBusy || session.levels != nil)
                     .modifier(NewProjectDropTarget(workspace: applicationDelegate?.workspace))
             }
@@ -230,12 +230,12 @@ struct ContentView: View {
             // Without this spacer, the growing tab strip pushes the primary actions left.
             ToolbarSpacer(.flexible, placement: .navigation)
             ToolbarItem(placement: .primaryAction) {
-                Button("Fit") { session.fit() }.help("Fit canvas in window (⌘0)")
+                Button("Fit".localized) { session.fit() }.help("Fit canvas in window (⌘0)".localized)
                     .accessibilityIdentifier("fitCanvas").disabled(session.document == nil)
                     .padding(.horizontal, 4)
             }
             ToolbarItem(placement: .primaryAction) {
-                Button("100%") { session.zoom(to: 1) }.help("Actual pixels (⌘1)")
+                Button("100%".localized) { session.zoom(to: 1) }.help("Actual pixels (⌘1)".localized)
                     .accessibilityIdentifier("actualPixels").disabled(session.document == nil)
                     .padding(.horizontal, 4)
             }
@@ -243,10 +243,10 @@ struct ContentView: View {
                 HStack(spacing: 0) {
                     Button { session.zoomKeyboard(by: 1) } label: {
                         Image(systemName: "plus.magnifyingglass")
-                    }.help("Zoom in (⌘+)").disabled(session.document == nil)
+                    }.help("Zoom in (⌘+)".localized).disabled(session.document == nil)
                     Button { session.zoomKeyboard(by: -1) } label: {
                         Image(systemName: "minus.magnifyingglass")
-                    }.help("Zoom out (⌘−)").disabled(session.document == nil)
+                    }.help("Zoom out (⌘−)".localized).disabled(session.document == nil)
                 }
                 .padding(.horizontal, 4)
             }
@@ -259,21 +259,21 @@ struct ContentView: View {
             if closed { levelsPanel.close() }
             else {
                 levelsPanel.onClose = { session.cancelLevels() }
-                levelsPanel.show(title: "Levels", content: LevelsSheet(session: session))
+                levelsPanel.show(title: "Levels".localized, content: LevelsSheet(session: session))
             }
         }
         .onChange(of: session.colorRange == nil) { _, closed in
             if closed { colorRangePanel.close() }
             else {
                 colorRangePanel.onClose = { session.cancelColorRange() }
-                colorRangePanel.show(title: "Color Range", content: ColorRangeSheet(session: session))
+                colorRangePanel.show(title: "Color Range".localized, content: ColorRangeSheet(session: session))
             }
         }
         .onChange(of: session.hueSaturation == nil) { _, closed in
             if closed { adjustmentPanel.close() }
             else {
                 adjustmentPanel.onClose = { session.cancelHueSaturation() }
-                adjustmentPanel.show(title: "Hue/Saturation", content: HueSaturationSheet(session: session))
+                adjustmentPanel.show(title: "Hue/Saturation".localized, content: HueSaturationSheet(session: session))
             }
         }
         .onChange(of: session.effectsEditing) { _, selection in
@@ -303,7 +303,7 @@ struct ContentView: View {
             else {
                 filterPanel.onClose = { session.cancelFilter() }
                 let placement: FloatingPanelPlacement = session.filterEdit?.kind == .cameraRaw ? .dockedToMainWindowRight : .automatic
-                filterPanel.show(title: session.filterEdit?.kind.rawValue ?? "Filter", content: FilterSheet(session: session),
+                filterPanel.show(title: session.filterEdit?.kind.localizedName ?? "Filter".localized, content: FilterSheet(session: session),
                                  placement: placement)
             }
         }
@@ -322,15 +322,15 @@ struct ContentView: View {
         .alert("Import couldn’t finish", isPresented: Binding(
             get: { session.importError != nil }, set: { if !$0 { session.importError = nil } })) {
                 // No cancel role: an alert with only a cancel button gets a second OK of its own.
-                Button("OK") { session.importError = nil }
+                Button("OK".localized) { session.importError = nil }
             } message: { Text(session.importError ?? "") }
         .alert("Couldn’t paint", isPresented: Binding(get: { session.brushError != nil },
             set: { if !$0 { session.brushError = nil } })) {
-                Button("OK") { session.brushError = nil }
+                Button("OK".localized) { session.brushError = nil }
             } message: { Text(session.brushError ?? "") }
         .alert("Couldn’t crop", isPresented: Binding(get: { session.cropError != nil },
             set: { if !$0 { session.cropError = nil } })) {
-                Button("OK") { session.cropError = nil }
+                Button("OK".localized) { session.cropError = nil }
             } message: { Text(session.cropError ?? "") }
     }
     private func requestNewCanvas() {
@@ -358,12 +358,75 @@ struct ContentView: View {
                 ProgressView().controlSize(.mini)
                 Text("Importing images…")
             } else {
-                Text(session.tool == .marquee ? (session.marqueeKind == .ellipse ? "Drag an ellipse · Shift add · Option subtract · Shift again mid-drag circle · Drag inside to move · Delete clears · ⌘D deselect" : "Drag a rectangle · Shift add · Option subtract · Shift again mid-drag square · Drag inside to move · ⌘-drag moves pixels · Delete clears · ⌘D deselect") : session.tool == .wand ? (session.wandMode == .object ? "Click an object to select its outline · Tab for Wand · Shift add · Option subtract · Drag inside to move · ⌘-drag moves pixels · Delete clears · ⌘D deselect" : "Click to select similar colors · Tab for Object · Shift add · Option subtract · Drag inside to move · ⌘-drag moves pixels · Delete clears · ⌘D deselect") : session.tool == .lasso ? (session.lassoKind == .freehand ? "Drag to select · Drag inside to move · Shift add · Option subtract · Delete clears · ⌥⌫/⌘⌫ fill · ⌘D deselect" : "Click corners · Click start, double-click or Enter to close · Delete removes corner · Escape cancel") : session.tool == .brush ? (session.brushMode == .erase ? "Drag to erase" : "Drag to paint") + " · [ ] size · Shift-[ ] hardness · 1–0 opacity · Escape cancel · Space to pan" : session.tool == .blur ? (session.blurMode == .blur ? "Drag to soften" : session.blurMode == .smudge ? "Drag to smudge" : "Drag to push pixels") + " · [ ] size · Shift-[ ] hardness · 1–0 strength · Space to pan" : session.tool == .cloneStamp ? "Option-click to set the source · Drag to clone · [ ] size · Shift-[ ] hardness · 1–0 opacity · Space to pan" : session.tool == .spotHealing ? "Drag over blemishes to heal · [ ] size · Shift-[ ] hardness · Escape cancel · Space to pan" : session.tool == .type ? "Drag a text box · Click text to edit · Drag box handles to resize · ⌘Return finish · Escape cancel" : session.tool == .shape ? "Drag to draw a shape on a new layer · Shift \(session.shapeKind == .line ? "45°" : session.shapeKind == .rectangle ? "square" : "circle") · Option from center · Shift-U or Tab for the next shape · Escape cancel · Space to pan" : session.tool == .pen ? session.penAction.statusText : session.tool == .gradient ? "Drag to draw · Drag ends to adjust · Shift 45° · 1–0 opacity · Enter apply · Escape cancel" : session.tool == .crop ? "Drag to crop · Enter apply · Escape cancel · Space to pan" : session.tool == .move ? "Drag to move · Handles to resize · Circle to rotate · 1–0 layer opacity · Space to pan" : session.tool == .hand ? "Drag to pan · Pinch to zoom" : session.tool == .idle ? "No tool selected · Press a tool's key to pick one · Space to pan" : "Click to zoom in · Option-click to zoom out · Drag right or left to zoom smoothly · Space to pan")
+                Text(hint(for: session))
             }
         }
         .font(.system(size: 11).monospacedDigit()).foregroundStyle(.secondary)
         .padding(.horizontal, 18).frame(height: 30)
         .accessibilityElement(children: .contain)
+    }
+    /// The status bar's tool hint, localized. Built from NSLocalizedString so the
+    /// runtime-computed string still resolves against Localizable.strings.
+    private func hint(for session: EditorSession) -> String {
+        switch session.tool {
+        case .marquee:
+            return session.marqueeKind == .ellipse
+                ? NSLocalizedString("Drag an ellipse · Shift add · Option subtract · Shift again mid-drag circle · Drag inside to move · Delete clears · ⌘D deselect", comment: "")
+                : NSLocalizedString("Drag a rectangle · Shift add · Option subtract · Shift again mid-drag square · Drag inside to move · ⌘-drag moves pixels · Delete clears · ⌘D deselect", comment: "")
+        case .wand:
+            return session.wandMode == .object
+                ? NSLocalizedString("Click an object to select its outline · Tab for Wand · Shift add · Option subtract · Drag inside to move · ⌘-drag moves pixels · Delete clears · ⌘D deselect", comment: "")
+                : NSLocalizedString("Click to select similar colors · Tab for Object · Shift add · Option subtract · Drag inside to move · ⌘-drag moves pixels · Delete clears · ⌘D deselect", comment: "")
+        case .lasso:
+            return session.lassoKind == .freehand
+                ? NSLocalizedString("Drag to select · Drag inside to move · Shift add · Option subtract · Delete clears · ⌥⌫/⌘⌫ fill · ⌘D deselect", comment: "")
+                : NSLocalizedString("Click corners · Click start, double-click or Enter to close · Delete removes corner · Escape cancel", comment: "")
+        case .brush:
+            let action = session.brushMode == .erase
+                ? NSLocalizedString("Drag to erase", comment: "")
+                : NSLocalizedString("Drag to paint", comment: "")
+            return action + NSLocalizedString(" · [ ] size · Shift-[ ] hardness · 1–0 opacity · Escape cancel · Space to pan", comment: "")
+        case .blur:
+            let action = session.blurMode == .blur
+                ? NSLocalizedString("Drag to soften", comment: "")
+                : session.blurMode == .smudge ? NSLocalizedString("Drag to smudge", comment: "")
+                : NSLocalizedString("Drag to push pixels", comment: "")
+            return action + NSLocalizedString(" · [ ] size · Shift-[ ] hardness · 1–0 strength · Space to pan", comment: "")
+        case .cloneStamp:
+            return NSLocalizedString("Option-click to set the source · Drag to clone · [ ] size · Shift-[ ] hardness · 1–0 opacity · Space to pan", comment: "")
+        case .spotHealing:
+            return NSLocalizedString("Drag over blemishes to heal · [ ] size · Shift-[ ] hardness · Escape cancel · Space to pan", comment: "")
+        case .type:
+            return NSLocalizedString("Drag a text box · Click text to edit · Drag box handles to resize · ⌘Return finish · Escape cancel", comment: "")
+        case .shape:
+            let shape = session.shapeKind == .line ? NSLocalizedString("45°", comment: "")
+                : session.shapeKind == .rectangle ? NSLocalizedString("square", comment: "")
+                : NSLocalizedString("circle", comment: "")
+            return String.localizedStringWithFormat(NSLocalizedString("Drag to draw a shape on a new layer · Shift %@ · Option from center · Shift-U or Tab for the next shape · Escape cancel · Space to pan", comment: ""), shape)
+        case .pen:
+            switch session.penAction {
+            case .draw:
+                return NSLocalizedString("Click points · Drag curves · Click the first point to close · Double-click or Return to finish open · Double-click an existing point to smooth · ⌘Return loads selection", comment: "")
+            case .bend:
+                return NSLocalizedString("Drag a path segment to bend it · ⌘Z undo · Tab changes path tool", comment: "")
+            case .cut:
+                return NSLocalizedString("Click a path segment to cut it · Closed paths open; open paths split into separate pieces · ⌘Z undo", comment: "")
+            case .erase:
+                return NSLocalizedString("Drag the circular eraser across the selected path · [ ] size · Right-drag size · Escape returns to Draw · ⌘Z undo", comment: "")
+            }
+        case .gradient:
+            return NSLocalizedString("Drag to draw · Drag ends to adjust · Shift 45° · 1–0 opacity · Enter apply · Escape cancel", comment: "")
+        case .crop:
+            return NSLocalizedString("Drag to crop · Enter apply · Escape cancel · Space to pan", comment: "")
+        case .move:
+            return NSLocalizedString("Drag to move · Handles to resize · Circle to rotate · 1–0 layer opacity · Space to pan", comment: "")
+        case .hand:
+            return NSLocalizedString("Drag to pan · Pinch to zoom", comment: "")
+        case .idle:
+            return NSLocalizedString("No tool selected · Press a tool's key to pick one · Space to pan", comment: "")
+        default:
+            return NSLocalizedString("Click to zoom in · Option-click to zoom out · Drag right or left to zoom smoothly · Space to pan", comment: "")
+        }
     }
 }
 
@@ -384,7 +447,7 @@ private struct PanelResizeEdge: View {
                         width = min(range.upperBound, max(range.lowerBound, (start - value.translation.width).rounded()))
                     }
                     .onEnded { _ in startWidth = nil })
-                .help("Drag to resize the panel")
+                .help("Drag to resize the panel".localized)
         }
     }
 }

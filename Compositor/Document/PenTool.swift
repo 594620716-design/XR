@@ -25,6 +25,9 @@ nonisolated enum PenAction: String, CaseIterable, Sendable {
             "Drag the circular eraser across the selected path · [ ] size · Right-drag size · Escape returns to Draw · ⌘Z undo"
         }
     }
+
+    /// The localized name.
+    var localizedName: String { rawValue.localized }
 }
 
 nonisolated struct VectorPathNode: Codable, Equatable, Sendable {
@@ -255,7 +258,7 @@ extension EditorSession {
         beginEdit("Load Path Selection")
         defer { endEdit() }
         if penDraft != nil, !finishPen() { return }
-        applySelection(path, mode: mode, name: "Load Path Selection")
+        applySelection(path, mode: mode, name: "Load Path Selection".localized)
         if let sourceLayerID = activeLayerID,
            let index = document?.layers.firstIndex(where: { $0.id == sourceLayerID }) {
             // Older projects stored a painted preview behind the vector nodes. Replace it with the transparent
@@ -954,7 +957,7 @@ extension EditorSession {
     }
 
     private func nextVectorPathName() -> String {
-        nextPenResultName("Path")
+        nextPenResultName("Path".localized)
     }
 
     /// Applies one continuous round sweep. Geometry updates while dragging are cheap; pixels and the thumbnail are
@@ -1103,7 +1106,7 @@ extension EditorSession {
                     ) else { return nil }
                     // A piece whose points coincide (two anchors dragged together) has nothing to paint.
                     guard points.count >= 2 else { continue }
-                    let blank = ImageLayer(name: "Path Stroke", blankSize: drawSize)
+                    let blank = ImageLayer(name: "Path Stroke".localized, blankSize: drawSize)
                     let stroke = try BrushStroke(layer: blank, mask: false, settings: settings,
                                                  canvas: drawSize, useGPU: false)
                     stroke.pixelLimit = width * height

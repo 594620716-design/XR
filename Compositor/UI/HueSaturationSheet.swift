@@ -33,29 +33,29 @@ struct HueSaturationSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(spacing: 12) {
-                Picker("Range", selection: settings.range) {
-                    ForEach(ColorRange.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                Picker("Range".localized, selection: settings.range) {
+                    ForEach(ColorRange.allCases, id: \.self) { Text($0.localizedName).tag($0) }
                 }
                 .pickerStyle(.menu).frame(width: 160).labelsHidden().disabled(current.colorize)
                 Spacer()
                 samplingControls
             }
-            slider("Hue", value: settings.hue, range: hueRange, unit: "°", track: hueTrack, reset: resetValues.hue)
-            slider("Saturation", value: settings.saturation, range: saturationRange, unit: "", track: saturationTrack,
+            slider("Hue".localized, value: settings.hue, range: hueRange, unit: "°", track: hueTrack, reset: resetValues.hue)
+            slider("Saturation".localized, value: settings.saturation, range: saturationRange, unit: "", track: saturationTrack,
                    reset: resetValues.saturation)
-            slider("Lightness", value: settings.lightness, range: -100...100, unit: "",
+            slider("Lightness".localized, value: settings.lightness, range: -100...100, unit: "",
                    track: .opposing(.black, .white), reset: resetValues.lightness)
             if showsSpectrum {
                 SpectrumEditor(settings: settings)
-                Toggle("Apply outside this range instead", isOn: settings.invertRange)
+                Toggle("Apply outside this range instead".localized, isOn: settings.invertRange)
             }
             HStack(spacing: 18) {
-                Toggle("Colorize", isOn: Binding(get: { current.colorize }, set: { colorize in
+                Toggle("Colorize".localized, isOn: Binding(get: { current.colorize }, set: { colorize in
                     // Photoshop starts colorizing at hue 0, saturation 25.
                     settings.wrappedValue = colorize ? .colorizeStart : HueSaturationSettings()
                 }))
-                Toggle("Preview", isOn: preview)
-                Button("Reset") { settings.wrappedValue = current.colorize ? .colorizeStart : HueSaturationSettings() }
+                Toggle("Preview".localized, isOn: preview)
+                Button("Reset".localized) { settings.wrappedValue = current.colorize ? .colorizeStart : HueSaturationSettings() }
                 Spacer()
             }
             if session.adjustmentOriginal == nil && session.selection != nil {
@@ -63,9 +63,9 @@ struct HueSaturationSheet: View {
             }
             Divider()
             HStack {
-                Button("Cancel") { session.cancelHueSaturation() }.configuredNativeShortcut(.escape)
+                Button("Cancel".localized) { session.cancelHueSaturation() }.configuredNativeShortcut(.escape)
                 Spacer()
-                Button("OK") { Task { await session.commitHueSaturation() } }
+                Button("OK".localized) { Task { await session.commitHueSaturation() } }
                     .configuredNativeShortcut(.return).buttonStyle(.borderedProminent)
             }
         }
@@ -102,7 +102,7 @@ struct HueSaturationSheet: View {
                 .buttonStyle(.plain)
                 .background(session.hueTargeting ? Color.accentColor.opacity(0.25) : .clear,
                             in: RoundedRectangle(cornerRadius: 4))
-                .help("Targeted adjustment: drag on the image to change that color's saturation, or its hue with Command held")
+                .help("Targeted adjustment: drag on the image to change that color's saturation, or its hue with Command held".localized)
                 .accessibilityLabel("Targeted adjustment")
             }
         }

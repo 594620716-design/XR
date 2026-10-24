@@ -397,7 +397,7 @@ extension EditorSession {
     /// paragraph never makes the row in the Layers panel taller than one line.
     static func layerName(for content: String) -> String {
         let flattened = content.split(whereSeparator: { $0.isWhitespace || $0.isNewline }).joined(separator: " ")
-        return flattened.isEmpty ? "Text" : String(flattened.prefix(40))
+        return flattened.isEmpty ? "Text".localized : String(flattened.prefix(40))
     }
 
     nonisolated static func textAttributes(_ style: LayerTextStyle) -> [NSAttributedString.Key: Any] {

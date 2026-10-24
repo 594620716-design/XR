@@ -9,7 +9,7 @@ struct LayerAppearanceControls: View {
     var body: some View {
         VStack(spacing: 8) {
             HStack {
-                Text("Blend").font(.caption)
+                Text("Blend".localized).font(.caption)
                 BlendModePicker(session: session)
             }.disabled(!session.canEditAppearance)
             HStack(spacing: 6) {

@@ -30,6 +30,9 @@ nonisolated enum DitherStyle: String, CaseIterable, Sendable {
     var drawsMarks: Bool { !hasTones }
     /// ASCII's characters are drawn at full resolution, not in chunky pixels.
     var usesPixelSize: Bool { self != .ascii }
+
+    /// The localized name.
+    var localizedName: String { rawValue.localized }
 }
 
 /// How a chunky pixel is drawn: a solid square, or a round dot with the dark color showing around it, like the lit
@@ -37,12 +40,18 @@ nonisolated enum DitherStyle: String, CaseIterable, Sendable {
 nonisolated enum DitherPixelShape: String, CaseIterable, Sendable {
     case square = "Square"
     case dot = "Dot"
+
+    /// The localized name.
+    var localizedName: String { rawValue.localized }
 }
 
 nonisolated enum DitherColors: String, CaseIterable, Sendable {
     case blackWhite = "Black & White"
     case twoColors = "Two Colors"
     case original = "Original"
+
+    /// The localized name.
+    var localizedName: String { rawValue.localized }
 }
 
 nonisolated struct DitherSettings: Equatable, Sendable {
